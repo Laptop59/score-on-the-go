@@ -46,6 +46,9 @@ class Serializer
         // Creates a new serializer for use.
         Serializer();
 
+        // Saves a ball file and returns string contents.
+        std::string saveBallfile(std::vector<Ball>& balls, std::vector<BpmChange>& bpmChanges);
+        
         // Reads a ball file from its contents and returns the result.
         // Note: DO NOT PASS `NULL`/`nullptr` into the contents.
         SerializerResult readBallfile(char* contents, size_t byteCount);

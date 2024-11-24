@@ -1,9 +1,80 @@
 #include "serializer.h"
 #include <variant>
+#include <cmath>
 
 Serializer::Serializer()
 {
     this->line   = 0;
+}
+
+std::string Serializer::saveBallfile(
+    std::vector<Ball>& balls,
+    std::vector<BpmChange>& bpmChanges
+)
+{
+    auto ballIter = balls.begin();
+    auto bpmChangesIter = bpmChanges.begin();
+    std::string output = "";
+    while (true)
+    {
+        // Specifies next in line.
+        // `0`: None
+        // `1`: Ball
+        // `2`: BPM Change
+        uint8_t next = 0;
+        double leastBeat = INFINITY;
+        // Prioritize BPM changes over balls.
+        if (bpmChangesIter != bpmChanges.end())
+        {
+            if (bpmChangesIter->beat < leastBeat)
+            {
+                leastBeat = bpmChangesIter->beat;
+                next = 2;
+            }
+        }
+        // Now ball.
+        if (ballIter != balls.end())
+        {
+            if (ballIter->at < leastBeat)
+            {
+                leastBeat = Ball::toBeats(ballIter->at);
+                next = 1;
+            }
+        }
+        // Finally use them.
+        if (!next) break; // Break out of the loop.
+        switch (next)
+        {
+            case 1:
+                // Ball.
+                output += std::to_string(Ball::toBeats(ballIter->at));
+                output += ':';
+                output += std::to_string(ballIter->x);
+                if (ballIter->speed != 1)
+                {
+                    output += ':';
+                    output += std::to_string(ballIter->speed);
+                }
+                output += '\n';
+                ++ballIter;
+                break;
+            case 2:
+                // BPM change.
+                output += std::to_string(bpmChangesIter->beat);
+                output += ':';
+                output += std::to_string(bpmChangesIter->bpm);
+                output += ":bpm\n";
+                ++bpmChangesIter;
+                break;
+        }
+    }
+    if (!output.empty())
+    {
+        // Trim last \n character.
+        if (output.at(output.size() - 1) == '\n')
+            output.erase(output.size() - 1, 1);
+    }
+    return output;
 }
 
 SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)

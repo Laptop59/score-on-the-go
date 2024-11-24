@@ -187,12 +187,12 @@ void Game::drawEditorBalls()
     }
 
     if (ghostBallStage < 2)
-        this->drawGhostBall(); // Draw it if it hasn't be drawn already.
+        this->drawGhostBall(); // Draw it if it hasn't been drawn already.
 }
 
 void Game::openLoadFilePicker()
 {
-    // Pase the game object to userdata for later.
+    // Pass the game object to userdata for later.
     this->filePickerOpen = true;
     SDL_ShowOpenFileDialog(
         &callbackLoadFilePicker,
@@ -203,6 +203,63 @@ void Game::openLoadFilePicker()
         NULL,
         false
     );
+}
+
+void Game::openSaveFilePicker()
+{
+    // Pass the game object to userdata for later.
+    this->filePickerOpen = true;
+    SDL_ShowSaveFileDialog(
+        &callbackSaveFilePicker,
+        this,
+        this->window,
+        this->fileFilter,
+        1,
+        NULL
+    );
+}
+
+void SDLCALL Game::callbackSaveFilePicker(void* userdata, const char* const* filelist, int filter)
+{
+    // Userdata is our game object.
+    Game* game = (Game*) userdata;
+    game->filePickerOpen = false;
+    if (!filelist)
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Save File Picker: %s", SDL_GetError());
+    }
+    else if (*filelist)
+    {
+        // Get the first item (we don't care about the other ones)
+        const char* file = *filelist;
+
+        // Create necessary data for saving to the file.
+        std::string text = game->serializer->saveBallfile(
+            game->balls,
+            game->bpmChanges
+        );
+
+        // Attempt to save file.
+        if (SDL_SaveFile(file, text.c_str(), text.length()))
+        {
+            SDL_ShowSimpleMessageBox(
+                SDL_MESSAGEBOX_INFORMATION,
+                "Score on the Go",
+                "Successfully saved ballfile.",
+                game->window
+            );
+        }
+        else
+        {
+            std::string errorMessage = std::string("Could not save ballfile: \n") + SDL_GetError();
+            SDL_ShowSimpleMessageBox(
+                SDL_MESSAGEBOX_ERROR,
+                "Score on the Go",
+                errorMessage.c_str(),
+                game->window
+            );
+        }
+    }
 }
 
 void SDLCALL Game::callbackLoadFilePicker(void* userdata, const char* const* filelist, int filter)
@@ -551,6 +608,13 @@ void Game::handleKeyDownEvent(SDL_Event* event)
             if (!filePickerOpen)
             {
                 openLoadFilePicker();
+            }
+            break;
+        case SDLK_S:
+            // Save file picker.
+            if (!filePickerOpen)
+            {
+                openSaveFilePicker();
             }
             break;
     }

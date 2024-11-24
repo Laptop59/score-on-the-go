@@ -201,6 +201,9 @@ class Game
         // Opens the file picker for getting a ballfile.
         void openLoadFilePicker();
 
+        // Opens the file picker for saving a ballfile.
+        void openSaveFilePicker();
+
         // Returns true if no other event should be handled. Handles menu events.
         bool handleMenuEvent(SDL_Event* event);
 
@@ -210,8 +213,11 @@ class Game
         // Resets text input.
         void resetInput();
 
-        // Callback for opening a file picker.
+        // Callback for opening-a-file picker.
         static void SDLCALL callbackLoadFilePicker(void* userdata, const char* const* filelist, int filter);
+
+        // Callback for saving-a-file picker.
+        static void SDLCALL callbackSaveFilePicker(void* userdata, const char* const* filelist, int filter);
 
         // Get displayed text string with |
         std::string getDisplayedInputText();
