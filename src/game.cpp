@@ -689,7 +689,7 @@ void Game::startPlayTest(double beat)
     seconds = getSecondsFromBeat(startPlaytestingBeat);
     seconds -= 1.5; // Introduce delay for giving the player time to playtest.
     startPlaytestingBeat = getBeatFromSeconds(seconds);
-    beat = startPlaytestingBeat;
+    this->beat = startPlaytestingBeat;
     queuedBalls.clear();
     auto startFrom = std::lower_bound(balls.begin(), balls.end(), beat);
     std::copy(startFrom, balls.end(), std::back_inserter(queuedBalls));
