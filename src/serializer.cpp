@@ -165,6 +165,7 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)
                         beat,
                         x
                     });
+                    continue;
                 }
                 else if (!checkIsDouble(segments.at(2), speed))
                 {

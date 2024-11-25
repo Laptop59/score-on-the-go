@@ -88,8 +88,20 @@ struct GameplayLeftPosition
 enum GameState
 {
     PLAYING            = 0x00,
-    EDITING_NONE       = 0x01,
-    EDITING_BPM        = 0x02
+    PLAYTESTING        = 0x01,
+    EDITING_NONE       = 0x02,
+    EDITING_BPM        = 0x03
+};
+
+/*
+ * Enums representating keys in paddle movement.
+ */
+enum PaddleKeys
+{
+    LEFT_FAST  = 0x01,
+    LEFT_SLOW  = 0x02,
+    RIGHT_SLOW = 0x04,
+    RIGHT_FAST = 0x08
 };
 
 /*
@@ -111,6 +123,18 @@ class Game
         // Current beat.
         double beat = 0.0;
 
+        // Current seconds in the ballfile.
+        double seconds = 0.0;
+
+        // Queued balls for playing/playtesting.
+        std::vector<Ball> queuedBalls;
+
+        // Beat where playtesting started from.
+        double startPlaytestingBeat = 0.0;
+
+        // Paddle position in +- context.
+        float paddlePosition = 0.0;
+
         // Game state.
         GameState gameState = GameState::EDITING_NONE;
 
@@ -131,6 +155,9 @@ class Game
 
         // Mouse positoon `[X, Y]`
         float mousePosition[2] = { INFINITY, INFINITY };
+
+        // Paddle keys pressed.
+        uint8_t paddleKeysPressed = 0b0000;
         
         // Current amount of space in `y` dimension between two beats.
         float beatSpacing = 45.0f;
@@ -149,6 +176,15 @@ class Game
 
         // Selected color divisor.
         ColorDivisor selectedDivisor = ColorDivisor::DIVISOR_4TH;
+
+        // Start playtesting from a beat.
+        void startPlayTest(double beat);
+
+        // Stop playtesting.
+        void stopPlayTest();
+
+        // Draw playtest elements.
+        void renderPlaytest();
 
         // Draw editor elements.
         void renderEditor();
@@ -222,7 +258,34 @@ class Game
         // Get displayed text string with |
         std::string getDisplayedInputText();
 
+        // Gets the signed falling ball pos (`-180 - 180` range).
+        float getSignedFallingBallPos(const Ball& ball);
+
+        // Paddle width.
+        float PADDLE_WIDTH = 100.0f;
+
+        // Maximum from left the paddle can go in either side.
+        float PADDLE_MAX_LEFT = GAMEPLAY_WIDTH / 2 - 13.0f;
+
+        // Paddle top pixel.
+        float PADDLE_TOP = GAMEPLAY_HEIGHT - 74.0f;
+
+        // Paddle top pixel in `+-` form (Scratch relative)
+        float PADDLE_TOP_SIGNED = 180.0f - PADDLE_TOP;
+
+        // Paddle height.
+        float PADDLE_HEIGHT = 22.0f;
+
+        // Paddle speed (per second).
+        float PADDLE_SPEED = 4.0f * 30;
+
+        // Default ball speed.
+        float BALL_SPEED = 100.0f;
+
     public:
+        // Delta time passed since last frame.
+        double deltaTimePassed;
+
         // Renderer for rendering the game.
         SDL_Renderer* renderer;
 
@@ -238,11 +301,20 @@ class Game
         // Constructor for the Game object.
         Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font);
 
+        // Function to update with new delta time.
+        void update();
+
         // Function to render to the renderer.
         void render();
 
         // Function to handle an SDL_Event.
         void handleEvent(SDL_Event* event);
+
+        // Get seconds from beat.
+        double getSecondsFromBeat(double beat);
+
+        // Get beat from seconds.
+        double getBeatFromSeconds(double seconds);
 
         // Deconstructor for the Game object.
         ~Game();

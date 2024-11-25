@@ -45,9 +45,71 @@ void Game::render()
             };
         SDL_SetRenderDrawColor(this->renderer, 0x33, 0x33, 0x33, SDL_ALPHA_OPAQUE);
         SDL_RenderFillRect(this->renderer, &gameplayRect);
-        this->renderEditor();
+        switch (gameState)
+        {
+            case PLAYTESTING:
+                this->renderPlaytest();
+                break;
+            default:
+                this->renderEditor();
+        }
     }
     SDL_RenderPresent(this->renderer);
+}
+
+void Game::renderPlaytest()
+{
+    // Render paddle
+    SDL_FRect paddleRect = SDL_FRect {
+        GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2 + paddlePosition - PADDLE_WIDTH / 2,
+        PADDLE_TOP,
+        PADDLE_WIDTH,
+        PADDLE_HEIGHT
+    };
+    SDL_SetRenderDrawColor(this->renderer, 0xFFu, 0xFFu, 0xFFu, 0xFFu);
+    SDL_RenderFillRect(this->renderer, &paddleRect);
+    // Outline is 5 pixels. However its an odd number, so 4 is good here.
+    paddleRect.x += 2;
+    paddleRect.y += 2;
+    paddleRect.w -= 4;
+    paddleRect.h -= 4;
+    SDL_SetRenderDrawColor(this->renderer, 0x33u, 0x33u, 0x33u, 0xFFu);
+    SDL_RenderFillRect(this->renderer, &paddleRect);
+
+    SDL_Color whiteColor = SDL_Color { 0xFFu, 0xFFu, 0xFFu, 0xFFu };
+    float x = GAMEPLAY_OFFSET + GAMEPLAY_WIDTH + 5;
+    drawText("Beat: ", whiteColor, x, 25, TextAlignment::LEFT_ALIGNED, 0.5f);
+    drawText(std::to_string(beat), whiteColor, x, 45, TextAlignment::LEFT_ALIGNED, 0.5f);
+
+    drawText("Seconds: ", whiteColor, x, 75, TextAlignment::LEFT_ALIGNED, 0.5f);
+    drawText(std::to_string(seconds), whiteColor, x, 95, TextAlignment::LEFT_ALIGNED, 0.5f);
+
+    SDL_FRect srcRect, destRect;
+
+    // Render balls.
+    for (auto ball = queuedBalls.begin();
+        ball < queuedBalls.end();
+        ++ball)
+    {
+        float renderY = getSignedFallingBallPos(*ball) + BALL_SIZE / 2;
+        if (renderY > SCREEN_HEIGHT / 2 + BALL_SIZE / 2) continue; // Off-screen, skip rendering.
+        float renderX = ball->x - BALL_SIZE / 2;
+        destRect = SDL_FRect {
+            renderX + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2,
+            GAMEPLAY_HEIGHT / 2 - renderY,
+            BALL_SIZE,
+            BALL_SIZE
+        };
+        minibeat miniBeatsOfBall = ball->at;
+        ColorDivisor colorDivisor = ColorDivisor::getColorDivisor(miniBeatsOfBall);
+        srcRect = this->textureLibrary->createRect(
+            (2 * colorDivisor.getColor() + isFast(ball->speed)) * BALL_SIZE,
+            0,
+            BALL_SIZE,
+            BALL_SIZE
+        );
+        SDL_RenderTexture(this->renderer, this->textureLibrary->balls, &srcRect, &destRect);
+    }
 }
 
 void Game::renderEditor()
@@ -620,6 +682,28 @@ void Game::handleKeyDownEvent(SDL_Event* event)
     }
 }
 
+void Game::startPlayTest(double beat)
+{
+    gameState = GameState::PLAYTESTING;
+    startPlaytestingBeat = beat;
+    seconds = getSecondsFromBeat(startPlaytestingBeat);
+    seconds -= 1.5; // Introduce delay for giving the player time to playtest.
+    startPlaytestingBeat = getBeatFromSeconds(seconds);
+    beat = startPlaytestingBeat;
+    queuedBalls.clear();
+    auto startFrom = std::lower_bound(balls.begin(), balls.end(), beat);
+    std::copy(startFrom, balls.end(), std::back_inserter(queuedBalls));
+}
+
+void Game::stopPlayTest()
+{
+    gameState = GameState::EDITING_NONE;
+    // Round beat.
+    if (beat < 0) beat = 0;
+    warpBeatToDivisor();
+    queuedBalls.clear();
+}
+
 bool Game::handleMenuEvent(SDL_Event* event)
 {
     char toAdd = '\0';
@@ -628,13 +712,36 @@ bool Game::handleMenuEvent(SDL_Event* event)
         case SDL_EVENT_KEY_DOWN:
             switch (event->key.key)
             {
+                case SDLK_ESCAPE:
+                    // Go back to the editor.
+                    if (gameState != GameState::PLAYING)
+                    {
+                        if (gameState == GameState::PLAYTESTING)
+                            stopPlayTest();
+                        gameState = GameState::EDITING_NONE;
+                    }
+                    break;
+                case SDLK_F2:
+                    // Playtest from start.
+                    if (gameState == GameState::EDITING_NONE)
+                    {
+                        startPlayTest(0.0);
+                    }
+                    break;
+                case SDLK_F3:
+                    // Playtest from current beat.
+                    if (gameState == GameState::EDITING_NONE)
+                    {
+                        startPlayTest(this->beat);
+                    }
+                    break;
                 case SDLK_B:
                     // Open/close BPM changer.
                     if (gameState == GameState::EDITING_BPM)
                     {
                         gameState = GameState::EDITING_NONE; // BPM menu closed.
                     }
-                    else
+                    else if (gameState == GameState::EDITING_NONE)
                     {
                         resetInput();
                         gameState = GameState::EDITING_BPM; // BPM menu open.
@@ -696,7 +803,52 @@ bool Game::handleMenuEvent(SDL_Event* event)
             inputCursor++;
         }
     }
+    // Handle player input here.
+    if (gameState == GameState::PLAYING || gameState == GameState::PLAYTESTING)
+    {
+        int8_t flags = 0;
+        switch (event->key.key)
+        {
+            case SDLK_A:
+                flags |= PaddleKeys::LEFT_FAST;
+                break;
+            case SDLK_S:
+                flags |= PaddleKeys::LEFT_SLOW;
+                break;
+            case SDLK_D:
+                flags |= PaddleKeys::RIGHT_SLOW;
+                break;
+            case SDLK_F:
+                flags |= PaddleKeys::RIGHT_FAST;
+                break;
+        }
+        if (event->type == SDL_EVENT_KEY_DOWN)
+            // Let's OR the flags.
+            this->paddleKeysPressed |= flags;
+        else if (event->type == SDL_EVENT_KEY_UP)
+            // Let's AND the inverse flags.
+            this->paddleKeysPressed &= ~flags;
+    }
     return this->gameState != GameState::EDITING_NONE;
+}
+
+void Game::update()
+{
+    if (gameState != GameState::PLAYING && gameState != GameState::PLAYTESTING) return;
+    float speed =
+        !!(paddleKeysPressed & PaddleKeys::LEFT_FAST) * -3.5f +
+        !!(paddleKeysPressed & PaddleKeys::LEFT_SLOW) * -1.0f +
+        !!(paddleKeysPressed & PaddleKeys::RIGHT_FAST) * 3.5f +
+        !!(paddleKeysPressed & PaddleKeys::RIGHT_SLOW) * 1.0f;
+    float change = speed * PADDLE_SPEED * this->deltaTimePassed;
+    paddlePosition += change;
+    if (std::abs(paddlePosition) > PADDLE_MAX_LEFT - PADDLE_WIDTH / 2)
+    {
+        paddlePosition = (paddlePosition / std::abs(paddlePosition)) * (PADDLE_MAX_LEFT - PADDLE_WIDTH / 2);
+    }
+    // Ball handling.
+    seconds += deltaTimePassed;
+    beat = getBeatFromSeconds(seconds);
 }
 
 std::string Game::getDisplayedInputText()
@@ -791,4 +943,100 @@ void Game::warpBeatToDivisor()
     // Now convert back.
     double newBeat = Ball::toBeats(minibeats);
     this->beat = newBeat;
+}
+
+double Game::getBeatFromSeconds(double seconds)
+{
+    double currentBpm = DEFAULT_BPM;
+    if (!bpmChanges.empty())
+    {
+        BpmChange firstChange = bpmChanges.at(0);
+        if (firstChange.beat == 0.0)
+            currentBpm = firstChange.bpm;
+    }
+
+    double currentSeconds = 0.0;
+    double currentBeat = 0.0;
+    double lastBeat = 0.0;
+
+    for (auto bpmChange = bpmChanges.begin(); bpmChange < bpmChanges.end(); ++bpmChange)
+    {
+        double timeBeforeNext = (bpmChange->beat - lastBeat) * 60.0 / currentBpm;
+        // Check if the total time now exceeds the seconds.
+        if (currentSeconds + timeBeforeNext >= seconds)
+        {
+            double remainingSeconds = seconds - currentSeconds;
+            currentBeat += remainingSeconds * currentBpm / 60.0;
+            currentSeconds = seconds;
+            break;
+        }
+
+        // Otherwise, update the current beat and move the time forward.
+        currentBeat += bpmChange->beat - lastBeat;
+        currentSeconds += timeBeforeNext;
+        
+        // Update the current BPM.
+        currentBpm = bpmChange->bpm;
+        lastBeat = bpmChange->beat;
+    }
+
+    double remainingSeconds = seconds - currentSeconds;
+    currentBeat += remainingSeconds * currentBpm / 60.0;
+
+    return currentBeat;
+}
+
+double Game::getSecondsFromBeat(double beat)
+{
+    double currentBpm = DEFAULT_BPM;
+    if (!bpmChanges.empty())
+    {
+        BpmChange firstChange = bpmChanges.at(0);
+        if (firstChange.beat == 0.0)
+            currentBpm = firstChange.bpm;
+    }
+
+    double currentSeconds = 0.0;
+    double beatsRemaining = 0.0;
+    double lastBeat = 0.0;
+
+    for (auto bpmChange = bpmChanges.begin(); bpmChange < bpmChanges.end(); ++bpmChange)
+    {
+        // Find the beats between two changes.
+        double beatsBetweenChanges = bpmChange->beat - lastBeat;
+
+        if (beatsRemaining <= beatsBetweenChanges) {
+            currentSeconds += (beatsRemaining / currentBpm) * 60.0;
+            break;
+        }
+
+        // Otherwise, accumulate the seconds for the entire section and reduce the remaining beats.
+        currentSeconds += (beatsBetweenChanges / currentBpm) * 60.0;
+        beatsRemaining -= beatsBetweenChanges;
+
+        // Update the current BPM.
+        currentBpm = bpmChange->bpm;
+        lastBeat = bpmChange->beat;
+    }
+
+    if (beatsRemaining > 0) {
+        currentSeconds += (beatsRemaining / currentBpm) * 60.0;
+    }
+
+    return currentSeconds;
+}
+
+float Game::getSignedFallingBallPos(const Ball& ball)
+{
+    double miniBeats = ball.at;
+    float speed = ball.speed;
+
+    double differenceInBeats =
+        (double) (miniBeats - beat * MINIBEATS_PER_BEAT) / MINIBEATS_PER_BEAT;
+    double amplifiedDifference = differenceInBeats * speed;
+
+    float y = amplifiedDifference * BALL_SPEED;
+    y += PADDLE_TOP_SIGNED + BALL_SIZE / 2;
+
+    return y;
 }

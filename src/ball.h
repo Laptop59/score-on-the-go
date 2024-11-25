@@ -48,6 +48,26 @@ class Ball
         {
             return at >= other.at;
         }
+
+        bool operator<(const int& other) const
+        {
+            return at < other;
+        }
+
+        bool operator>(const int& other) const
+        {
+            return at > other;
+        }
+
+        bool operator<=(const int& other) const
+        {
+            return at <= other;
+        }
+
+        bool operator>=(const int& other) const
+        {
+            return at >= other;
+        }
 };
 
 #endif
