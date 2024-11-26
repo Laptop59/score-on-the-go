@@ -2,6 +2,7 @@
 #include <SDL3/SDL_main.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <SDL3_image/SDL_image.h>
+#include <SDL3_mixer/SDL_mixer.h>
 #include <cmath>
 #include <memory>
 #include "game.h"
@@ -62,6 +63,17 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
         return SDL_APP_FAILURE;
     }
 
+    // Although it isn't necessary, setup audio initialization here.
+    MIX_InitFlags audioFlags = MIX_INIT_MP3;
+    MIX_InitFlags previousFlags = Mix_Init(0);
+    if (Mix_Init(audioFlags) != audioFlags | previousFlags)
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "Warning: SDL MIX Error: %s", SDL_GetError());
+    }
+
+    // Open an audio device.
+    Mix_OpenAudio(0, NULL);
+
     // Set up the application data
     AppContext* ac = new AppContext();
     ac->window = window;
@@ -81,7 +93,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     // Now assign to the appstate.
     *appstate = ac;
     
-    SDL_Log("Application started successfully!");
+    SDL_Log("Score on the Go: Welcome! The editor is opened for you.");
 
     return SDL_APP_CONTINUE;
 }
@@ -131,7 +143,9 @@ void SDL_AppQuit(void* appstate, SDL_AppResult result) {
         delete app;
     }
 
+    Mix_CloseAudio();
+    Mix_Quit();
     TTF_Quit();
     SDL_Quit();
-    SDL_Log("Application quit successfully!");
+    SDL_Log("Score on the Go: Bye!");
 }

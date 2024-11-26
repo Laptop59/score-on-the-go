@@ -62,11 +62,13 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(SDL3 REQUIRED IMPORTED_TARGET sdl3)
 pkg_check_modules(SDL3_ttf REQUIRED IMPORTED_TARGET sdl3-ttf)
 pkg_check_modules(SDL3_image REQUIRED IMPORTED_TARGET sdl3-image)
+pkg_check_modules(SDL3_mixer REQUIRED IMPORTED_TARGET sdl3-mixer)
 
 # Link SDL to our executable. This also makes its include directory available to us. 
 target_link_libraries(${EXECUTABLE_NAME} PUBLIC PkgConfig::SDL3)
 target_link_libraries(${EXECUTABLE_NAME} PUBLIC PkgConfig::SDL3_ttf)
 target_link_libraries(${EXECUTABLE_NAME} PUBLIC PkgConfig::SDL3_image)
+target_link_libraries(${EXECUTABLE_NAME} PUBLIC PkgConfig::SDL3_mixer)
 target_compile_definitions(${EXECUTABLE_NAME} PUBLIC SDL_MAIN_USE_CALLBACKS)
 
 # set some extra configs for each platform

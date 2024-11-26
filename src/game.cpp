@@ -20,12 +20,20 @@ Game::Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font)
     this->fileFilter = new SDL_DialogFileFilter;
     this->fileFilter->name = "Ballfile";
     this->fileFilter->pattern = "txt";
+
+    this->music = nullptr;
 }
 
 Game::~Game()
 {
     // Free file filter.
-   delete this->fileFilter;
+    delete this->fileFilter;
+
+    // Free music.
+    if (this->music != nullptr)
+    {
+        Mix_FreeMusic(this->music);
+    }
 }
 
 void Game::render()
@@ -110,6 +118,7 @@ void Game::renderPlaytest()
         );
         SDL_RenderTexture(this->renderer, this->textureLibrary->balls, &srcRect, &destRect);
     }
+    this->renderFlashesAndJudgement();
 }
 
 void Game::renderEditor()
@@ -141,6 +150,11 @@ void Game::renderEditor()
         later_beat++;
     }
     while (y <= SCREEN_HEIGHT);
+
+    SDL_Color white = SDL_Color { 0xFF, 0xFF, 0xFF, 0xFF };
+    drawText("Selected", white, 5, 10, TextAlignment::LEFT_ALIGNED, 0.5f);
+    drawText("Speed:", white, 5, 25, TextAlignment::LEFT_ALIGNED, 0.5f);
+    drawText(std::to_string(this->selectedSpeed), white, 5, 40, TextAlignment::LEFT_ALIGNED, 0.5f);
 
     this->drawEditorBalls();
     this->drawDivisorArrow();
@@ -267,6 +281,21 @@ void Game::openLoadFilePicker()
     );
 }
 
+void Game::openLoadMusicPicker()
+{
+    // Pass the game object to userdata for later.
+    this->filePickerOpen = true;
+    SDL_ShowOpenFileDialog(
+        &callbackLoadMusicPicker,
+        this,
+        this->window,
+        this->fileFilter,
+        0,
+        NULL,
+        false
+    );
+}
+
 void Game::openSaveFilePicker()
 {
     // Pass the game object to userdata for later.
@@ -321,6 +350,38 @@ void SDLCALL Game::callbackSaveFilePicker(void* userdata, const char* const* fil
                 game->window
             );
         }
+    }
+}
+
+void SDLCALL Game::callbackLoadMusicPicker(void* userdata, const char* const* filelist, int filter)
+{
+    // Userdata is our game object.
+    Game* game = (Game*) userdata;
+    game->filePickerOpen = false;
+    if (!filelist)
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Load Music Picker: %s", SDL_GetError());
+    }
+    else if (*filelist)
+    {
+        // Get the first item (we don't care about the other ones)
+        const char* file = *filelist;
+
+        // Load the music.
+        Mix_Music* music = Mix_LoadMUS(file);
+
+        if (music == NULL)
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Loading Music: %s", SDL_GetError());
+            return;
+        }
+
+        // Free the existing music.
+        if (game->music != NULL)
+        {
+            Mix_FreeMusic(game->music);
+        }
+        game->music = music;
     }
 }
 
@@ -625,14 +686,38 @@ void Game::handleMouseWheelEvent(SDL_Event* event)
 
 void Game::handleMouseButtonDownEvent(SDL_Event* event)
 {
-    std::optional<GameplayLeftPosition> ballPosition = this->ballCanBePlaced();
-    if (ballPosition)
+    std::optional<GameplayLeftPosition> ballPosition;
+    switch (event->button.button)
     {
-        // The ball can be placed. Add the ball.
-        float ballX = ballPosition->x - GAMEPLAY_WIDTH / 2;
-        Ball* ball = new Ball(this->beat, this->selectedSpeed, ballX);
-        // Add the ball.
-        addBall(*ball);
+        case SDL_BUTTON_LEFT:
+            ballPosition = this->ballCanBePlaced();
+            if (ballPosition)
+            {
+                // The ball can be placed. Add the ball.
+                float ballX = ballPosition->x - GAMEPLAY_WIDTH / 2;
+                Ball* ball = new Ball(this->beat, this->selectedSpeed, ballX);
+                // Add the ball.
+                addBall(*ball);
+            }
+            break;
+        case SDL_BUTTON_RIGHT:
+            // Delete an existing ball.
+            ballPosition = this->ballCanBePlaced();
+            if (ballPosition)
+            {
+                // The ball can be deleted. Find balls close to the range.
+                float ballX = ballPosition->x - GAMEPLAY_WIDTH / 2;
+                for (auto ball = balls.begin(); ball < balls.end(); ++ball)
+                {
+                    if (std::abs(ball->x - ballX) < 10.0f)
+                    {
+                        // Delete the ball.
+                        balls.erase(ball);
+                        break;
+                    }
+                }
+            }
+            break;
     }
 }
 
@@ -665,11 +750,32 @@ void Game::handleKeyDownEvent(SDL_Event* event)
             if (beatSpacing < EDITOR_BEAT_SEPARATION_MIN)
                 beatSpacing = EDITOR_BEAT_SEPARATION_MIN;
             break;
+        case SDLK_COMMA:
+        case SDLK_PERIOD:
+            {
+                float netChange = event->key.key == SDLK_COMMA ? -0.1f : 0.1f;
+                if (event->key.mod & SDL_KMOD_CTRL) netChange /= 10;
+                if (event->key.mod & SDL_KMOD_SHIFT) netChange /= 10;
+                if (event->key.mod & SDL_KMOD_ALT) netChange /= 100;
+                selectedSpeed += netChange;
+                if (selectedSpeed <= 0)
+                {
+                    selectedSpeed = -netChange;
+                }
+            }
+            break;
         case SDLK_L:
             // Open file picker.
             if (!filePickerOpen)
             {
                 openLoadFilePicker();
+            }
+            break;
+        case SDLK_M:
+            // Open music picker.
+            if (!filePickerOpen)
+            {
+                openLoadMusicPicker();
             }
             break;
         case SDLK_S:
@@ -691,8 +797,14 @@ void Game::startPlayTest(double beat)
     startPlaytestingBeat = getBeatFromSeconds(seconds);
     this->beat = startPlaytestingBeat;
     queuedBalls.clear();
+    queuedBallFlashes.clear();
     auto startFrom = std::lower_bound(balls.begin(), balls.end(), beat);
     std::copy(startFrom, balls.end(), std::back_inserter(queuedBalls));
+    if (seconds >= 0)
+    {
+        Mix_PlayMusic(this->music, 0);
+        Mix_SetMusicPosition(seconds);
+    }
 }
 
 void Game::stopPlayTest()
@@ -702,6 +814,8 @@ void Game::stopPlayTest()
     if (beat < 0) beat = 0;
     warpBeatToDivisor();
     queuedBalls.clear();
+    queuedBallFlashes.clear();
+    Mix_HaltMusic();
 }
 
 bool Game::handleMenuEvent(SDL_Event* event)
@@ -847,8 +961,166 @@ void Game::update()
         paddlePosition = (paddlePosition / std::abs(paddlePosition)) * (PADDLE_MAX_LEFT - PADDLE_WIDTH / 2);
     }
     // Ball handling.
+    if (seconds < 0 && seconds + deltaTimePassed >= 0)
+    {
+        Mix_PlayMusic(this->music, 0);
+        Mix_SetMusicPosition(seconds + deltaTimePassed);
+    }
     seconds += deltaTimePassed;
     beat = getBeatFromSeconds(seconds);
+    updateBalls();
+    updateFlashes();
+}
+
+void Game::updateFlashes()
+{
+    for (auto flash = queuedBallFlashes.begin();
+        flash < queuedBallFlashes.end();)
+    {
+        double timeDiff = seconds - flash->secondsWhenHit;
+        if (timeDiff >= BALL_FLASH_EXPIRY)
+        {
+            // Remove the element.
+            flash = queuedBallFlashes.erase(flash);
+        }
+        else
+            ++flash;
+    }
+}
+
+void Game::renderFlashesAndJudgement()
+{
+    BallFlash* latestFlash = NULL;
+    for (auto flash = queuedBallFlashes.begin();
+        flash < queuedBallFlashes.end();
+        ++flash)
+    {
+        double timeDiff = seconds - flash->secondsWhenHit;
+        // From 0..1, preferably. Might not be...
+        float alpha = 0.5 - timeDiff * 3.0 / 2.0;
+        SDL_Color flashColor = getFlashColor(flash->judgement);
+        alpha *= ((float) flashColor.a) / 255.0f;
+        if (alpha > 0)
+        {
+            SDL_SetTextureColorMod(
+                textureLibrary->flash,
+                flashColor.r,
+                flashColor.g,
+                flashColor.b
+            );
+            SDL_SetTextureAlphaModFloat(textureLibrary->flash, alpha);
+            float flashSize = BALL_FLASH_SIZE * (1.0f + timeDiff * 3.0f);
+            SDL_FRect destRect = SDL_FRect {
+                GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2 + flash->x - flashSize / 2,
+                GAMEPLAY_HEIGHT / 2 - flash->y - flashSize / 2,
+                flashSize,
+                flashSize
+            };
+            SDL_RenderTexture(
+                this->renderer,
+                this->textureLibrary->flash,
+                NULL,
+                &destRect
+            );
+        }
+        latestFlash = &*flash;
+    }
+    if (latestFlash != NULL)
+    {
+        // Display judgement.
+        drawText(
+            getText(latestFlash->judgement),
+            getTextColor(latestFlash->judgement),
+            GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2,
+            GAMEPLAY_HEIGHT / 2,
+            TextAlignment::CENTER_ALIGNED,
+            (1.0f + (seconds - latestFlash->secondsWhenHit) * 1.50f)
+        );
+    }
+    // Revert color mods.
+    SDL_SetTextureColorMod(textureLibrary->flash, 0xFF, 0xFF, 0xFF);
+    SDL_SetTextureAlphaModFloat(textureLibrary->flash, 255.0f);
+}
+
+Judgement Game::getJudgementFromDifference(float difference)
+{
+    if (difference < PADDLE_WIDTH * 0.2)
+        return Judgement::PERFECT;
+    else if (difference < PADDLE_WIDTH * 0.35)
+        return Judgement::GREAT;
+    else
+        return Judgement::GOOD;
+}
+
+void Game::updateBalls()
+{
+    for (auto ball = queuedBalls.begin();
+        ball < queuedBalls.end();)
+    {
+        // Check if the ball intersects the rectangle.
+        // Taken from https://stackoverflow.com/questions/401847/circle-rectangle-collision-detection-intersection
+
+        float cy = getSignedFallingBallPos(*ball);
+
+        if (cy <= SCREEN_HEIGHT / -2 - BALL_SIZE / 2)
+        {
+            // Remove the ball and count it as a miss.
+            queuedBallFlashes.push_back(BallFlash {
+                seconds,
+                Judgement::MISS,
+                0.0f,
+                0.0f
+            });
+            ball = queuedBalls.erase(ball);
+            continue;
+        }
+
+        float cx = ball->x;
+        float cr = BALL_SIZE / 2;
+
+        SDL_FRect rect = SDL_FRect {
+            paddlePosition - PADDLE_WIDTH / 2,
+            SCREEN_HEIGHT / 2 - PADDLE_TOP - PADDLE_HEIGHT,
+            PADDLE_WIDTH,
+            PADDLE_HEIGHT  
+        };
+
+        float rx = rect.x + rect.w / 2;
+        float ry = rect.y + rect.h / 2;
+
+        float dx = std::abs(rx - cx);
+        float dy = std::abs(ry - cy);
+
+        if (dx > rect.w / 2 + cr || dy > rect.h / 2 + cr)
+        {
+            // Definitely not touching.
+            ++ball;
+            continue;
+        }
+
+        bool isTouching = dx <= (rect.w / 2) || dy <= (rect.h / 2);
+
+        if (!isTouching)
+        {
+            float cornerDistanceSq =
+                std::pow(dx - rect.w / 2, 2.0f) + std::pow(dy - rect.h / 2, 2.0f);
+            isTouching = cornerDistanceSq <= cr * cr;
+        }
+
+        if (isTouching)
+        {
+            Judgement judgement = getJudgementFromDifference(std::abs(paddlePosition - ball->x));
+            queuedBallFlashes.push_back(BallFlash {
+                seconds,
+                judgement,
+                cx,
+                cy
+            });
+            ball = queuedBalls.erase(ball);
+        }
+        else
+            ++ball;
+    }
 }
 
 std::string Game::getDisplayedInputText()
@@ -997,7 +1269,7 @@ double Game::getSecondsFromBeat(double beat)
     }
 
     double currentSeconds = 0.0;
-    double beatsRemaining = 0.0;
+    double beatsRemaining = beat;
     double lastBeat = 0.0;
 
     for (auto bpmChange = bpmChanges.begin(); bpmChange < bpmChanges.end(); ++bpmChange)

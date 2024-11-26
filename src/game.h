@@ -1,5 +1,6 @@
 #include <SDL3/SDL_render.h>
 #include <SDL3_ttf/SDL_ttf.h>
+#include <SDL3_mixer/SDL_mixer.h>
 #include <memory>
 #include <vector>
 #include <optional>
@@ -74,6 +75,27 @@ enum TextAlignment
 };
 
 /*
+ * An object representing a circle in a 2D dimension.
+ */
+struct Circle
+{
+    float x; // X-position of its center.
+    float y; // Y-position of its center.
+    float r; // Radius of circle.
+};
+
+/*
+ * Judgement in game.
+ */
+enum Judgement
+{
+    PERFECT = 0x01,
+    GREAT   = 0x02,
+    GOOD    = 0x03,
+    MISS    = 0x00
+};
+
+/*
  * An object representing relative position to gameplay.
  */
 struct GameplayLeftPosition
@@ -115,6 +137,17 @@ enum InputMode
 };
 
 /*
+ * Structure representing a ball flash, after a ball is hit by the paddle.
+ */
+struct BallFlash
+{
+    double secondsWhenHit;
+    Judgement judgement;
+    float x;
+    float y;
+};
+
+/*
  * An object representing the game.
  */
 class Game
@@ -128,6 +161,9 @@ class Game
 
         // Queued balls for playing/playtesting.
         std::vector<Ball> queuedBalls;
+
+        // Queued ball flashes for playing/playtesting.
+        std::vector<BallFlash> queuedBallFlashes;
 
         // Beat where playtesting started from.
         double startPlaytestingBeat = 0.0;
@@ -176,6 +212,9 @@ class Game
 
         // Selected color divisor.
         ColorDivisor selectedDivisor = ColorDivisor::DIVISOR_4TH;
+
+        // Music to play.
+        Mix_Music* music;
 
         // Start playtesting from a beat.
         void startPlayTest(double beat);
@@ -240,6 +279,9 @@ class Game
         // Opens the file picker for saving a ballfile.
         void openSaveFilePicker();
 
+        // Opens the file picker for loading music.
+        void openLoadMusicPicker();
+
         // Returns true if no other event should be handled. Handles menu events.
         bool handleMenuEvent(SDL_Event* event);
 
@@ -255,11 +297,26 @@ class Game
         // Callback for saving-a-file picker.
         static void SDLCALL callbackSaveFilePicker(void* userdata, const char* const* filelist, int filter);
 
+        // Callback for opening-music picker.
+        static void SDLCALL callbackLoadMusicPicker(void* userdata, const char* const* filelist, int filter);
+
         // Get displayed text string with |
         std::string getDisplayedInputText();
 
         // Gets the signed falling ball pos (`-180 - 180` range).
         float getSignedFallingBallPos(const Ball& ball);
+        
+        // Updates falling balls (in gameplay) and handles collision.
+        void updateBalls();
+
+        // Updates flashes when hitting balls.
+        void updateFlashes();
+
+        // Render flashes and the most recent judgement.
+        void renderFlashesAndJudgement();
+
+        // Gets judgement from position difference.
+        Judgement getJudgementFromDifference(float difference);
 
         // Paddle width.
         float PADDLE_WIDTH = 100.0f;
@@ -281,6 +338,48 @@ class Game
 
         // Default ball speed.
         float BALL_SPEED = 100.0f;
+
+        // Ball flash expiry, the time it takes to do so for the time it was hit. Used for judgement showing.
+        double BALL_FLASH_EXPIRY = 20.0 / 30;
+
+        // Ball flash size. (diameter)
+        float BALL_FLASH_SIZE = 42.0f;
+
+        // Get flash color from a judgement.
+        constexpr SDL_Color getFlashColor(Judgement judgement)
+        {
+            const SDL_Color colors[] = {
+                SDL_Color { 0x00, 0x00, 0x00, 0x00 }, // no flash for miss
+                SDL_Color { 0x87, 0xD5, 0xFF, 0x7F }, // bluish
+                SDL_Color { 0x87, 0xFF, 0x9B, 0x7F }, // greenish
+                SDL_Color { 0xDF, 0xFF, 0x87, 0x7F }, // yellowish
+            };
+            return colors[judgement];
+        }
+
+        // Get text color from a judgement.
+        constexpr SDL_Color getTextColor(Judgement judgement)
+        {
+            const SDL_Color colors[] = {
+                SDL_Color { 0xFF, 0x87, 0x87, 0x00 }, // redish
+                SDL_Color { 0x88, 0xDF, 0xFF, 0xFF }, // bluish
+                SDL_Color { 0xAD, 0xFF, 0x87, 0xFF }, // greenish
+                SDL_Color { 0xFF, 0xFA, 0x87, 0xFF }, // yellowish
+            };
+            return colors[judgement];
+        }
+
+        // Get text from a judgement.
+        const std::string getText(Judgement judgement)
+        {
+            const std::string strs[] = {
+                "Miss...",
+                "Perfect!!",
+                "Great!",
+                "Good"
+            };
+            return strs[judgement];
+        }
 
     public:
         // Delta time passed since last frame.

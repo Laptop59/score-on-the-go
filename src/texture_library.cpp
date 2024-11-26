@@ -12,6 +12,7 @@ void TextureLibrary::loadTextures()
 {
     this->loadTexture(&this->balls, "resources/balls.png");
     this->loadTexture(&this->divisorArrows, "resources/divisor_arrows.png");
+    this->loadTexture(&this->flash, "resources/flash.png");
 }
 
 TextureLibrary::~TextureLibrary()
@@ -19,6 +20,7 @@ TextureLibrary::~TextureLibrary()
     // Unload textures.
     this->unloadTexture(&this->balls);
     this->unloadTexture(&this->divisorArrows);
+    this->unloadTexture(&this->flash);
 }
 
 bool TextureLibrary::loadTexture(SDL_Texture** texture, const char* path)

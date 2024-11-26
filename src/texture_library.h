@@ -12,6 +12,9 @@ class TextureLibrary
         // Texture of arrows to specify the color divisor.
         SDL_Texture* divisorArrows;
 
+        // Texture of a flash.
+        SDL_Texture* flash;
+
         // SDL Renderer for creating textures.
         SDL_Renderer* renderer;
 
