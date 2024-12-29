@@ -93,9 +93,78 @@ void Game::renderPlaytest()
     drawText("Seconds: ", whiteColor, x, 75, TextAlignment::LEFT_ALIGNED, 0.5f);
     drawText(std::to_string(seconds), whiteColor, x, 95, TextAlignment::LEFT_ALIGNED, 0.5f);
 
-    SDL_FRect srcRect, destRect;
-
     // Render balls.
+    renderQueuedBalls();
+}
+
+void Game::renderQueuedBalls()
+{
+    SDL_FRect srcRect, destRect;
+    // Render the tail of long balls.
+    // TODO TO FIX ERRORS: Find a way to render an already-hit queued hold ball's tail.
+    for (auto ball = queuedBalls.begin();
+        ball < queuedBalls.end();
+        ++ball)
+    {
+        BallType type = ball->type;
+        if (!std::holds_alternative<BallTypeHold>(type))
+        {
+            continue; // Not a long note.
+        }
+        float renderY = getSignedFallingBallPos(*ball) + BALL_SIZE / 2;
+        if (renderY > SCREEN_HEIGHT / 2 + BALL_SIZE / 2) continue; // Off-screen, skip rendering.
+        float renderX = ball->x - BALL_SIZE / 2;
+        // Create a texture.
+        SDL_Texture* texture = SDL_CreateTexture(this->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
+        if (texture == NULL) continue;
+        std::optional<std::vector<BallTypeTailPoint>> optional = getPointsFromType(type);
+        if (!optional.has_value()) continue;
+        // Find tail beat.
+        double tailBeat = (double) getMinibeatOfLastPoint(type);
+        std::vector<BallTypeTailPoint>& points = optional.value();
+        if (points.empty()) continue;
+        // Change target of the renderer to render to the texture.
+        SDL_SetRenderTarget(this->renderer, texture);
+        tailBeat /= MINIBEATS_PER_BEAT;
+        float x; // This will be used for where to place the tail segments.
+        //
+        auto it = points.begin();
+        float x1 = renderX, x2 = it->x;
+        minibeat y1 = ball->at, y2 = it->minibeats;
+        //
+        for (float y = getSignedYPosFromBeat(this->beat, ball->speed);
+            y <= getSignedYPosFromBeat(tailBeat, ball->speed);
+            y += 5.0f)
+        {
+            ASSERT(y1 <= y2);
+            while (y > y2)
+            {
+                // Go to next segment.
+                x1 = x2;
+                y1 = y2;
+                ++it;
+                // Break if iterator of points has reached its end.
+                if (it == points.end()) break;
+                x2 = it->x;
+                y2 = it->minibeats;
+            }
+            // Break if no more points are available.
+            if (it == points.end()) break;
+            x = x1 + (x2 - x1) / (double) (y2 - y1) * (y * MINIBEATS_PER_BEAT - y1);
+            destRect = SDL_FRect {
+                x + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2,
+                GAMEPLAY_HEIGHT / 2 - y,
+                BALL_SIZE,
+                BALL_SIZE
+            };
+            SDL_RenderTexture(this->renderer, this->textureLibrary->tail, NULL, &destRect);
+        }
+        // Let the renderer render to the window again.
+        SDL_SetRenderTarget(this->renderer, NULL);
+        SDL_RenderTexture(this->renderer, texture, NULL, NULL);
+        SDL_DestroyTexture(texture);
+    }
+    // Render ball circles.
     for (auto ball = queuedBalls.begin();
         ball < queuedBalls.end();
         ++ball)
@@ -967,6 +1036,37 @@ void Game::startPlayTest(double beat)
     }
 }
 
+minibeat Game::getMinibeatOfLastPoint(BallType& type)
+{
+    std::optional<std::vector<BallTypeTailPoint>> optional = getPointsFromType(type);
+    if (optional.has_value())
+    {
+        std::vector<BallTypeTailPoint>& vec = optional.value();
+        if (!vec.empty())
+        {
+            return vec.rbegin()->minibeats;
+        }
+    }
+    return 0_mb;
+}
+
+std::optional<std::vector<BallTypeTailPoint>> Game::getPointsFromType(BallType& type)
+{
+    std::optional<std::vector<BallTypeTailPoint>> points {};
+    // HOLDs
+    if (std::holds_alternative<BallTypeHold>(type))
+    {
+        BallTypeHold data = std::get<BallTypeHold>(type);
+        points = data.points;
+    }
+    // If points do exist:
+    if (points.has_value())
+    {
+        return points;
+    }
+    return std::nullopt;
+}
+
 void Game::setQueuedBalls(double startFrom)
 {
     queuedBalls.clear();
@@ -999,7 +1099,10 @@ void Game::setQueuedBalls(double startFrom)
                     ASSERT(y1 <= y2);
                     if (node <= y2)
                     {
-                        x = x1 + (x2 - x1) / (y2 - y1) * (node - y1);
+                        if (y1 == y2)
+                            x = y2;
+                        else
+                            x = x1 + (x2 - x1) / (y2 - y1) * (node - y1);
                         break;
                     }
                     // Go to the next point.
@@ -1571,8 +1674,14 @@ float Game::getSignedFallingBallPos(const Ball& ball)
     double miniBeats = ball.at;
     float speed = ball.speed;
 
-    double differenceInBeats =
-        (double) (miniBeats - beat * MINIBEATS_PER_BEAT) / MINIBEATS_PER_BEAT;
+    float y = getSignedYPosFromBeat(miniBeats / MINIBEATS_PER_BEAT, speed);
+
+    return y;
+}
+
+float Game::getSignedYPosFromBeat(double otherBeat, float speed)
+{
+    double differenceInBeats = otherBeat - beat;
     double amplifiedDifference = differenceInBeats * speed;
 
     float y = amplifiedDifference * BALL_SPEED;

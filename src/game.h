@@ -336,6 +336,9 @@ class Game
         // Checks if number input should be handled.
         InputMode inputModeEnabled();
 
+        // Renders queued balls.
+        void renderQueuedBalls();
+
         // Resets text input.
         void resetInput();
 
@@ -356,6 +359,16 @@ class Game
 
         // Gets the signed falling ball pos (`-180 - 180` range).
         float getSignedFallingBallPos(const Ball& ball);
+
+        // Gets the signed y pos, like `getSignedFallingBallPos`.
+        float getSignedYPosFromBeat(double otherBeat, float speed);
+
+        // Gets the minibeat of the last point of a tailed ball's type (like a hold)
+        // Returns 0 if non-existent.
+        minibeat getMinibeatOfLastPoint(BallType& type);
+
+        // Gets all the tail points of a type.
+        std::optional<std::vector<BallTypeTailPoint>> getPointsFromType(BallType& type);
         
         // Updates falling balls (in gameplay) and handles collision.
         void updateBalls();

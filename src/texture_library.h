@@ -15,6 +15,9 @@ class TextureLibrary
         // Texture of a flash.
         SDL_Texture* flash;
 
+        // Texture of a segment of a tail of a tailed circle.
+        SDL_Texture* tail;
+
         // SDL Renderer for creating textures.
         SDL_Renderer* renderer;
 
