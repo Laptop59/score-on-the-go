@@ -113,4 +113,15 @@ class ColorDivisor
         Value value;
 };
 
+inline minibeat operator "" _mb(unsigned long long value)
+{
+    return static_cast<minibeat>(value);
+}
+
+inline sminibeat operator "" _smb(unsigned long long value)
+{
+    return static_cast<sminibeat>(value);
+}
+
+
 #endif

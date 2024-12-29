@@ -66,6 +66,9 @@ const float FAST_BALL_SPEED = 1.5f;
 // Default BPM when nothing else exists.
 const double DEFAULT_BPM = 120.0;
 
+// Number of minibeats between each long ball node. Affects gameplay.
+const minibeat LONG_BALL_NODE_SPACING = (minibeat) (MINIBEATS_PER_BEAT * 0.25);
+
 // Specifies how text is aligned.
 enum TextAlignment
 {
@@ -137,6 +140,15 @@ enum InputMode
 };
 
 /*
+ * Enum representing selected ball to be placed (normal, hold, etc...)
+ */
+enum SelectedPlacableBall
+{
+    NORMAL      = 0x00,
+};
+
+
+/*
  * Structure representing a ball flash, after a ball is hit by the paddle.
  */
 struct BallFlash
@@ -158,6 +170,9 @@ class Game
 
         // Current seconds in the ballfile.
         double seconds = 0.0;
+
+        // Selected ball to place.
+        SelectedPlacableBall selectedToPlace = SelectedPlacableBall::NORMAL;
 
         // Queued balls for playing/playtesting.
         std::vector<Ball> queuedBalls;
@@ -189,7 +204,13 @@ class Game
         // Current circle speed for editing.
         float selectedSpeed = 1.0f;
 
-        // Mouse positoon `[X, Y]`
+        // Whether left mouse is held down.
+        bool leftMouseHeld = false;
+
+        // Index of ball for checking for creation of holds.
+        size_t ballCheckedForTail = SIZE_MAX;
+
+        // Mouse position `[X, Y]`
         float mousePosition[2] = { INFINITY, INFINITY };
 
         // Paddle keys pressed.
@@ -215,6 +236,15 @@ class Game
 
         // Music to play.
         Mix_Music* music;
+
+        // Selected point's owner,
+        std::optional<std::vector<Ball>::iterator> selectedPointOwner;
+
+        // Selected point.
+        std::optional<std::vector<BallTypeTailPoint>::iterator> selectedPoint;
+
+        // Whether the point should be cloned.
+        bool shouldClonePoint;
 
         // Start playtesting from a beat.
         void startPlayTest(double beat);
@@ -252,11 +282,23 @@ class Game
         // Checks if a ball can be placed at current mouse position.
         std::optional<GameplayLeftPosition> ballCanBePlaced();
 
+        // Used for selecting hold points, for example.
+        bool setTouchedPointOwner();
+
+        // Clears point selected.
+        void clearTouchedPointOwner();
+
+        // Moves selected point.
+        void moveCurrentPoint(bool clone);
+
         // Draws a ball in the editor.
         void drawEditorBall(const Ball& ball);
 
         // Adds a ball in the balls vector. DO NOT CALL THIS FUNCTION AT THE SAME TIME THE VECTOR'S ITERATORS ARE USED!
-        void addBall(const Ball& ball);
+        size_t addBall(const Ball& ball);
+
+        // Removes a ball in the balls vector, returning a new iterator to the vector for continuing looping. DO NOT CALL THIS FUNCTION AT THE SAME TIME THE VECTOR'S ITERATORS ARE USED!
+        std::vector<Ball>::iterator removeBall(std::vector<Ball>::iterator ball);
 
         // Adds a bpm change in their vector. DO NOT CALL THIS FUNCTION AT THE SAME TIME THE VECTOR'S ITERATORS ARE USED!
         void addBpmChange(const BpmChange& bpmChange);
@@ -264,11 +306,17 @@ class Game
         // Draws balls in the editor.
         void drawEditorBalls();
 
+        // After copying balls to be queued, creates queued ball nodes, like from queued holds, for example.
+        void setQueuedBalls(double startFrom);
+
         // Handles mouse wheel events.
         void handleMouseWheelEvent(SDL_Event* event);
 
         // Handles mouse button down events.
         void handleMouseButtonDownEvent(SDL_Event* event);
+
+        // Handles mouse button up events.
+        void handleMouseButtonUpEvent(SDL_Event* event);
 
         // Handle key down events.
         void handleKeyDownEvent(SDL_Event* event);
@@ -290,6 +338,9 @@ class Game
 
         // Resets text input.
         void resetInput();
+
+        // Move a certain number of minibeats according to current divisor.
+        void moveTimesDivisor(float direction);
 
         // Callback for opening-a-file picker.
         static void SDLCALL callbackLoadFilePicker(void* userdata, const char* const* filelist, int filter);
@@ -319,7 +370,7 @@ class Game
         Judgement getJudgementFromDifference(float difference);
 
         // Paddle width.
-        float PADDLE_WIDTH = 100.0f;
+        float PADDLE_WIDTH = 125.0f;
 
         // Maximum from left the paddle can go in either side.
         float PADDLE_MAX_LEFT = GAMEPLAY_WIDTH / 2 - 13.0f;
@@ -380,6 +431,15 @@ class Game
             };
             return strs[judgement];
         }
+
+        // Get text from selected placable ball.
+        const std::string getTextFromPlacable(SelectedPlacableBall spb)
+        {
+            const std::string strs[] = {
+                "Normal",
+            };
+            return strs[spb];
+        };
 
     public:
         // Delta time passed since last frame.

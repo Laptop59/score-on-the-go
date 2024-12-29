@@ -6,6 +6,8 @@ Ball::Ball(minibeat at, float speed, float x)
     this->at = at;
     this->speed = speed;
     this->x = x;
+    BallType ballType(BallTypeNormal {});
+    this->type = ballType;
 }
 
 Ball::Ball(double at, float speed, float x)
@@ -13,6 +15,8 @@ Ball::Ball(double at, float speed, float x)
     this->at = toMinibeats(at);
     this->speed = speed;
     this->x = x;
+    BallType ballType(BallTypeNormal {});
+    this->type = ballType;
 }
 
 double Ball::toBeats(minibeat minibeat)

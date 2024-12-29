@@ -8,6 +8,7 @@
 #include <iostream>
 #include <optional>
 #include <algorithm>
+#include "assert.h"
 
 Game::Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font)
 {
@@ -155,6 +156,15 @@ void Game::renderEditor()
     drawText("Selected", white, 5, 10, TextAlignment::LEFT_ALIGNED, 0.5f);
     drawText("Speed:", white, 5, 25, TextAlignment::LEFT_ALIGNED, 0.5f);
     drawText(std::to_string(this->selectedSpeed), white, 5, 40, TextAlignment::LEFT_ALIGNED, 0.5f);
+    drawText("Balls:", white, 5, 55, TextAlignment::LEFT_ALIGNED, 0.5f);
+    drawText(std::to_string(this->balls.size()), white, 5, 70, TextAlignment::LEFT_ALIGNED, 0.5f);
+
+    float yy = 85;
+    for (auto ball = balls.begin(); ball != balls.end(); ++ball)
+    {
+        drawText(std::to_string(ball->at), white, 5, yy, TextAlignment::LEFT_ALIGNED, 0.5f);
+        yy += 15;
+    }
 
     this->drawEditorBalls();
     this->drawDivisorArrow();
@@ -242,6 +252,33 @@ void Game::drawEditorBalls()
             // Draw ghost ball.
             this->drawGhostBall();
             ghostBallStage++;
+        }
+    }
+
+    // Now draw lines.
+    for (auto ball = this->balls.begin(); ball != this->balls.end(); ++ball)
+    {
+        if (std::holds_alternative<BallTypeHold>(ball->type))
+        {
+            float x1 = ball->x, x2;
+            minibeat y1 = ball->at, y2;
+            BallTypeHold h = std::get<BallTypeHold>(ball->type);
+            for (auto point = h.points.begin(); point != h.points.end(); ++point)
+            {
+                x2 = point->x;
+                y2 = ball->at + point->minibeats;
+                {
+                    // Draw points.
+                    float p1 = x1 + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2;
+                    float p2 = EDITOR_SELECTED_BEAT_Y + (Ball::toBeats(y1) - this->beat) * beatSpacing;
+                    float p3 = x2 + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2;
+                    float p4 = EDITOR_SELECTED_BEAT_Y + (Ball::toBeats(y2) - this->beat) * beatSpacing;
+                    SDL_SetRenderDrawColor(this->renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+                    SDL_RenderLine(this->renderer, p1, p2, p3, p4);
+                }
+                x1 = x2;
+                y1 = y2;
+            }
         }
     }
 
@@ -540,7 +577,7 @@ void Game::renderEditorBeatLine(size_t beat, float y)
     this->drawText(
         str,
         SDL_Color {0xFF, 0xFF, 0xFF, 0xFF},
-        GAMEPLAY_OFFSET - 30,
+        GAMEPLAY_OFFSET - 5,
         y,
         TextAlignment::RIGHT_ALIGNED,
         0.5f
@@ -663,12 +700,11 @@ bool Game::isFast(float ballSpeed)
     return ballSpeed >= FAST_BALL_SPEED;
 }
 
-void Game::handleMouseWheelEvent(SDL_Event* event)
+void Game::moveTimesDivisor(float direction)
 {
     minibeat minibeats = Ball::toMinibeats(this->beat);
     // Add/Subtract required minibeats and convert back.
     minibeat netChange = this->selectedDivisor.getWorth();
-    float direction = -event->wheel.y;
     if (direction < 0 && netChange >= minibeats)
     {
         this->beat = 0;
@@ -682,6 +718,107 @@ void Game::handleMouseWheelEvent(SDL_Event* event)
             remainingMinibeats = minibeats - netChange;
         this->beat = Ball::toBeats(remainingMinibeats);
     }
+    if (!leftMouseHeld) return;                     // Without left mouse holding, do not allow creation of long balls.
+    if (balls.size() <= ballCheckedForTail) return; // Cannot be out of bounds.
+    Ball& ball = balls.at(ballCheckedForTail);      // Then find the required ball.
+    minibeat holdLength;
+    if (ball.at < Ball::toMinibeats(this->beat))
+    {
+        holdLength = Ball::toMinibeats(this->beat) - ball.at;
+    }
+    else if (ball.at == Ball::toMinibeats(this->beat))
+    {
+        // Convert the ball back into a non-hold ball.
+        if (std::holds_alternative<BallTypeHold>(ball.type))
+        {
+            ball.type = BallTypeNormal {};
+        }
+        return;
+    }
+    else return;
+    if (std::holds_alternative<BallTypeNormal>(ball.type))
+    {
+        // Normal --> Hold
+        ball.type = BallTypeHold {
+            { 
+                BallTypeTailPoint { ball.x, holdLength }
+            }
+        };
+    }
+    else if (std::holds_alternative<BallTypeHold>(ball.type))
+    {
+        // Update the hold point.
+        ball.type = BallTypeHold {
+            { 
+                BallTypeTailPoint { ball.x, holdLength }
+            }
+        };
+    }
+}
+
+void Game::handleMouseWheelEvent(SDL_Event* event)
+{
+    moveTimesDivisor(-event->wheel.y);
+}
+
+void Game::handleMouseButtonUpEvent(SDL_Event* event)
+{
+    switch (event->button.button)
+    {
+        case SDL_BUTTON_LEFT:
+            leftMouseHeld = false;
+            ballCheckedForTail = SIZE_MAX;
+            clearTouchedPointOwner();
+            break;
+    }
+}
+
+void Game::clearTouchedPointOwner()
+{
+    selectedPointOwner = {};
+    selectedPoint = {};
+}
+
+bool Game::setTouchedPointOwner()
+{
+    std::optional<std::vector<BallTypeTailPoint>::iterator> nearest = {};
+    std::optional<std::vector<Ball>::iterator> owner = {};
+    float leastDistanceSquared = INFINITY;
+    for (auto ball = balls.begin(); ball != balls.end(); ++ball)
+    {
+        std::vector<BallTypeTailPoint>* points = nullptr;
+        if (std::holds_alternative<BallTypeHold>(ball->type))
+        {
+            points = &std::get<BallTypeHold>(ball->type).points;
+        }
+        if (points != nullptr)
+        {
+            std::vector<BallTypeTailPoint>& vector = *points;
+            for (auto point = vector.begin(); point != vector.end(); ++point)
+            {
+                float mx = mousePosition[0] - GAMEPLAY_OFFSET - GAMEPLAY_WIDTH / 2;
+                float dx = mx - point->x;
+                if (std::abs(dx) > 10) continue;
+                float my = mousePosition[1];
+                float dy =
+                    my - ((Ball::toBeats(ball->at + point->minibeats) - this->beat) * beatSpacing + EDITOR_SELECTED_BEAT_Y);
+                if (std::abs(dy) > 10) continue;
+                float distanceSquared = dx * dx + dy * dy;
+                if (leastDistanceSquared > distanceSquared)
+                {
+                    leastDistanceSquared = distanceSquared;
+                    nearest = point;
+                    owner = ball;
+                }
+            }
+        }
+    }
+    selectedPoint = {};
+    selectedPointOwner = {};
+    if (!nearest) return false;
+    selectedPoint = nearest;
+    selectedPointOwner = owner;
+    return true;
 }
 
 void Game::handleMouseButtonDownEvent(SDL_Event* event)
@@ -690,6 +827,10 @@ void Game::handleMouseButtonDownEvent(SDL_Event* event)
     switch (event->button.button)
     {
         case SDL_BUTTON_LEFT:
+            leftMouseHeld = true;
+
+            if (this->setTouchedPointOwner()) return;
+
             ballPosition = this->ballCanBePlaced();
             if (ballPosition)
             {
@@ -697,7 +838,7 @@ void Game::handleMouseButtonDownEvent(SDL_Event* event)
                 float ballX = ballPosition->x - GAMEPLAY_WIDTH / 2;
                 Ball* ball = new Ball(this->beat, this->selectedSpeed, ballX);
                 // Add the ball.
-                addBall(*ball);
+                ballCheckedForTail = addBall(*ball);
             }
             break;
         case SDL_BUTTON_RIGHT:
@@ -707,18 +848,29 @@ void Game::handleMouseButtonDownEvent(SDL_Event* event)
             {
                 // The ball can be deleted. Find balls close to the range.
                 float ballX = ballPosition->x - GAMEPLAY_WIDTH / 2;
+                float leastDistance = INFINITY;
+                minibeat minibeats = Ball::toMinibeats(this->beat);
+                std::vector<Ball>::iterator closest;
                 for (auto ball = balls.begin(); ball < balls.end(); ++ball)
                 {
-                    if (std::abs(ball->x - ballX) < 10.0f)
+                    sminibeat distance = (sminibeat)(ball->at) - (sminibeat)(minibeats);
+                    if (std::abs(ball->x - ballX) < 10.0f &&
+                        std::abs(distance) < 24_smb)
                     {
                         // Delete the ball.
-                        balls.erase(ball);
+                        ball = removeBall(ball);
                         break;
                     }
                 }
             }
             break;
     }
+}
+
+std::vector<Ball>::iterator Game::removeBall(std::vector<Ball>::iterator ball)
+{
+    clearTouchedPointOwner();
+    return balls.erase(ball);
 }
 
 void Game::handleKeyDownEvent(SDL_Event* event)
@@ -737,6 +889,12 @@ void Game::handleKeyDownEvent(SDL_Event* event)
             toGoto = this->selectedDivisor.getNext();
             if (toGoto) this->selectedDivisor = toGoto;
             warpBeatToDivisor();
+            break;
+        case SDLK_UP:
+            moveTimesDivisor(-1.0f);
+            break;
+        case SDLK_DOWN:
+            moveTimesDivisor(1.0f);
             break;
         case SDLK_EQUALS:
             // Increase spacing between two beats.
@@ -785,6 +943,10 @@ void Game::handleKeyDownEvent(SDL_Event* event)
                 openSaveFilePicker();
             }
             break;
+        case SDLK_LCTRL:
+        case SDLK_RCTRL:
+            shouldClonePoint = true;
+            break;
     }
 }
 
@@ -793,17 +955,69 @@ void Game::startPlayTest(double beat)
     gameState = GameState::PLAYTESTING;
     startPlaytestingBeat = beat;
     seconds = getSecondsFromBeat(startPlaytestingBeat);
-    seconds -= 1.5; // Introduce delay for giving the player time to playtest.
+    // seconds -= 1.5; // Introduce delay for giving the player time to playtest.
     startPlaytestingBeat = getBeatFromSeconds(seconds);
     this->beat = startPlaytestingBeat;
-    queuedBalls.clear();
-    queuedBallFlashes.clear();
-    auto startFrom = std::lower_bound(balls.begin(), balls.end(), beat);
-    std::copy(startFrom, balls.end(), std::back_inserter(queuedBalls));
+    // Now expand the queued balls (e.g. holds)
+    setQueuedBalls(beat);
     if (seconds >= 0)
     {
         Mix_PlayMusic(this->music, 0);
         Mix_SetMusicPosition(seconds);
+    }
+}
+
+void Game::setQueuedBalls(double startFrom)
+{
+    queuedBalls.clear();
+    queuedBallFlashes.clear();
+    auto iterStartFrom = std::lower_bound(balls.begin(), balls.end(), startFrom);
+    std::copy(iterStartFrom, balls.end(), std::back_inserter(queuedBalls));
+    for (auto it = queuedBalls.begin(); it != queuedBalls.end(); ++it)
+    {
+        if (std::holds_alternative<BallTypeHold>(it->type))
+        {
+            // This ball is a hold.
+            BallTypeHold data = std::get<BallTypeHold>(it->type);
+            minibeat longBallAt = it->at;
+            float longBallX = it->x;
+            // Create hold nodes from 0.25 to hold end incrementing by 0.25.
+            if (data.points.empty()) continue;
+            // Get the last point.
+            BallTypeTailPoint lastPoint = *data.points.rbegin();
+            for (minibeat node = LONG_BALL_NODE_SPACING; node <= lastPoint.minibeats; node += LONG_BALL_NODE_SPACING)
+            {
+                float x = lastPoint.x;
+                // Calculate the appropriate 'x' value.
+                float x1 = longBallX, x2;
+                minibeat y1 = 0_mb, y2;
+                auto point = data.points.begin();
+                while (point != data.points.end())
+                {
+                    x2 = point->x;
+                    y2 = point->minibeats;
+                    ASSERT(y1 <= y2);
+                    if (node <= y2)
+                    {
+                        x = x1 + (x2 - x1) / (y2 - y1) * (node - y1);
+                        break;
+                    }
+                    // Go to the next point.
+                    x1 = x2;
+                    y1 = y2;
+                    ++point;
+                }
+
+                // Node ball minibeat = Hold ball minibeat + Relative minibeats.
+                Ball nodeBall(longBallAt + node, it->speed, x);
+
+                // Create type object and put that.
+                BallTypeHoldNode type;
+                nodeBall.type = type;
+
+                it = queuedBalls.insert(it + 1, nodeBall);
+            }
+        }
     }
 }
 
@@ -1150,39 +1364,93 @@ void Game::handleEvent(SDL_Event* event)
         case SDL_EVENT_MOUSE_WHEEL:
             handleMouseWheelEvent(event);
             break;
+        case SDL_EVENT_MOUSE_BUTTON_UP:
+            handleMouseButtonUpEvent(event);
+            break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             handleMouseButtonDownEvent(event);
             break;
         case SDL_EVENT_KEY_DOWN:
             handleKeyDownEvent(event);
             break;
+        case SDL_EVENT_KEY_UP:
+            switch (event->key.key)
+            {
+                case SDLK_LCTRL:
+                case SDLK_RCTRL:
+                    shouldClonePoint = false;
+                    break;
+            }
+            break;
         case SDL_EVENT_MOUSE_MOTION:
             this->mousePosition[0] = event->motion.x;
             this->mousePosition[1] = event->motion.y;
+            moveCurrentPoint(shouldClonePoint);
+            shouldClonePoint = false;
     }
 }
 
-void Game::addBall(const Ball& ball)
+void Game::moveCurrentPoint(bool clone)
+{
+    if (!selectedPoint) return;
+    if (clone)
+    {
+        BallType& ballType = selectedPointOwner.value()->type;
+        if (std::holds_alternative<BallTypeHold>(ballType))
+        {
+            BallTypeHold& ballTypeData = std::get<BallTypeHold>(ballType);
+            std::vector<BallTypeTailPoint>::iterator& iterator = selectedPoint.value();
+            BallTypeTailPoint copy = *iterator;
+            if (iterator != ballTypeData.points.end())
+            {
+                ++iterator;
+            }
+            selectedPoint = ballTypeData.points.insert(iterator, copy);
+        }
+    }
+    std::vector<BallTypeTailPoint>::iterator point = selectedPoint.value();
+    point->x = this->mousePosition[0] - GAMEPLAY_OFFSET - GAMEPLAY_WIDTH / 2;
+    double ballBeats = this->beat + (this->mousePosition[1] - EDITOR_SELECTED_BEAT_Y) / beatSpacing;
+    ballBeats -= Ball::toBeats(this->selectedPointOwner.value()->at);
+    point->minibeats = Ball::toMinibeats(ballBeats);
+}
+
+size_t Game::addBall(const Ball& ball)
 {
     // We want to find the position where the ball can be added such
     // that the balls are in ascending order depending on their beat.
-    this->balls.insert(
-        std::lower_bound(balls.begin(), balls.end(), ball),
+    clearTouchedPointOwner();
+    auto position = std::lower_bound(balls.begin(), balls.end(), ball);
+    return std::distance(this->balls.begin(), this->balls.insert(
+        position,
         ball
-    );
+    ));
 }
 
 void Game::addBpmChange(const BpmChange& bpmChange)
 {
-    // We want to find the position where the ball can be added such
-    // that the balls are in ascending order depending on their beat.
-    this->bpmChanges.insert(
-        std::lower_bound(bpmChanges.begin(), bpmChanges.end(), bpmChange),
-        bpmChange
-    );
+    // We want to find the position where the change can be added such
+    // that the changes are in ascending order depending on their beat.
+    bool isPut = false;
+    for (auto bc = bpmChanges.begin(); bc < bpmChanges.end(); ++bc)
+    {
+        if (bc->beat == bpmChange.beat)
+        {
+            *bc = bpmChange;
+            isPut = true;
+            break;
+        }
+    }
+    if (!isPut)
+    {
+        this->bpmChanges.insert(
+            std::lower_bound(bpmChanges.begin(), bpmChanges.end(), bpmChange),
+            bpmChange
+        );
+    }
     // Remove unnecessary changes.
     double lastBpm = NAN;
-    for (auto bpmChange = bpmChanges.begin(); bpmChange <= bpmChanges.end();)
+    for (auto bpmChange = bpmChanges.begin(); bpmChange < bpmChanges.end();)
     {
         if (bpmChange->bpm == lastBpm)
             bpmChange = bpmChanges.erase(bpmChange);
