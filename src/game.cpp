@@ -283,6 +283,11 @@ void Game::renderIndependentBall(const Ball& ball, SDL_FRect destRect)
         id = colorDivisor.getColor();
         texture = this->textureLibrary->mines;
     }
+    else if (std::holds_alternative<BallTypeSquare>(ball.type))
+    {
+        id = 2 * colorDivisor.getColor() + isFast(ball.speed);
+        texture = this->textureLibrary->squares;
+    }
     else
     {
         id = 2 * colorDivisor.getColor() + isFast(ball.speed);
@@ -737,9 +742,9 @@ void Game::drawEditorBall(const Ball& ball)
     float x = destRect.x + destRect.w * 0.5f;
     float y = destRect.y + destRect.h * 0.5f;
     SDL_Color speedTextColor = colorDivisor.getTextColor();
-    if (std::holds_alternative<BallTypeMine>(ball.type) &&
+    if (std::holds_alternative<BallTypeMine>(ball.type) ||
         std::holds_alternative<BallTypePit>(ball.type))
-        speedTextColor = SDL_Color { 0xFF, 0xFF, 0xFF, 0xFF };
+        speedTextColor = SDL_Color { 0x1F, 0x1F, 0x1F, 0xFF };
     drawText(std::to_string(ball.speed).substr(0, 5), speedTextColor,
         x, y, TextAlignment::CENTER_ALIGNED, 0.45f);
 }
@@ -879,7 +884,7 @@ void Game::drawDivisorArrow()
 
 bool Game::isFast(float ballSpeed)
 {
-    return ballSpeed >= FAST_BALL_SPEED;
+    return ballSpeed - FAST_BALL_SPEED >= -0.00001f;
 }
 
 void Game::moveTimesDivisor(float direction)
@@ -1037,6 +1042,11 @@ void Game::handleMouseButtonDownEvent(SDL_Event* event)
                 if (placingMode == PlacingMode::MINE)
                 {
                     BallTypeMine type;
+                    ball.type = type;
+                }
+                else if (placingMode == PlacingMode::SQUARE)
+                {
+                    BallTypeSquare type;
                     ball.type = type;
                 }
                 // Add the ball.

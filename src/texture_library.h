@@ -21,6 +21,9 @@ class TextureLibrary
         // Texture of a segment of a tail of a tailed circle.
         SDL_Texture* tail;
 
+        // Texture of squares.
+        SDL_Texture* squares;
+
         // SDL Renderer for creating textures.
         SDL_Renderer* renderer;
 

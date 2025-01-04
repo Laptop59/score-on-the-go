@@ -11,6 +11,9 @@ struct BallTypeNormal {};
 // Type of a ball mine.
 struct BallTypeMine {};
 
+// Type of a normal square.
+struct BallTypeSquare {};
+
 // Point relative to the start of a hold ball.
 struct BallTypeTailPoint
 {
@@ -42,6 +45,7 @@ struct BallTypePit
 using BallType = std::variant<
     BallTypeNormal,
     BallTypeMine,
+    BallTypeSquare,
     BallTypeHold,
     BallTypeHoldFragment,
     BallTypePit,
