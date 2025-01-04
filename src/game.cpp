@@ -77,7 +77,7 @@ void Game::renderPlaytest()
     };
     SDL_SetRenderDrawColor(this->renderer, 0xFFu, 0xFFu, 0xFFu, 0xFFu);
     SDL_RenderFillRect(this->renderer, &paddleRect);
-    // Outline is 5 pixels. However its an odd number, so 4 is good here.
+    // Outline is 5 pixels. However it's an odd number, so 4 is good here.
     paddleRect.x += 2;
     paddleRect.y += 2;
     paddleRect.w -= 4;
@@ -87,14 +87,42 @@ void Game::renderPlaytest()
 
     SDL_Color whiteColor = SDL_Color { 0xFFu, 0xFFu, 0xFFu, 0xFFu };
     float x = GAMEPLAY_OFFSET + GAMEPLAY_WIDTH + 5;
-    drawText("Beat: ", whiteColor, x, 25, TextAlignment::LEFT_ALIGNED, 0.5f);
-    drawText(std::to_string(beat), whiteColor, x, 45, TextAlignment::LEFT_ALIGNED, 0.5f);
+    drawText("Beat: ", whiteColor, x, 25, TextAlignment::LEFT_ALIGNED, 0.4f);
+    drawText(std::to_string(beat), whiteColor, x, 40, TextAlignment::LEFT_ALIGNED, 0.4f);
 
-    drawText("Seconds: ", whiteColor, x, 75, TextAlignment::LEFT_ALIGNED, 0.5f);
-    drawText(std::to_string(seconds), whiteColor, x, 95, TextAlignment::LEFT_ALIGNED, 0.5f);
+    drawText("Seconds: ", whiteColor, x, 65, TextAlignment::LEFT_ALIGNED, 0.4f);
+    drawText(std::to_string(seconds), whiteColor, x, 80, TextAlignment::LEFT_ALIGNED, 0.4f);
 
     // Render balls.
     renderQueuedBalls();
+}
+
+bool Game::isQueuedBallInteractable(Ball& ball)
+{
+    if (std::holds_alternative<BallTypeHold>(ball.type))
+    {
+        // Check if it was already hit.
+        BallTypeHold& data = std::get<BallTypeHold>(ball.type);
+        if (data.hit)
+            return false;
+    }
+    if (std::holds_alternative<BallTypePit>(ball.type))
+    {
+        // Check if it was already hit.
+        BallTypePit& data = std::get<BallTypePit>(ball.type);
+        if (data.hit)
+            return false;
+    }
+    return true;
+}
+
+float Game::getBallSize(Ball& ball)
+{
+    if (std::holds_alternative<BallTypeHoldFragment>(ball.type))
+        return TAIL_SIZE;
+    if (std::holds_alternative<BallTypePitFragment>(ball.type))
+        return TAIL_SIZE;
+    return BALL_SIZE;
 }
 
 void Game::renderQueuedBalls()
@@ -106,58 +134,87 @@ void Game::renderQueuedBalls()
         ball < queuedBalls.end();
         ++ball)
     {
-        BallType type = ball->type;
-        if (!std::holds_alternative<BallTypeHold>(type))
+        BallType& type = ball->type;
+        if (!std::holds_alternative<BallTypeHold>(type) &&
+            !std::holds_alternative<BallTypePit>(type))
         {
             continue; // Not a long note.
         }
-        float renderY = getSignedFallingBallPos(*ball) + BALL_SIZE / 2;
-        if (renderY > SCREEN_HEIGHT / 2 + BALL_SIZE / 2) continue; // Off-screen, skip rendering.
-        float renderX = ball->x - BALL_SIZE / 2;
-        // Create a texture.
-        SDL_Texture* texture = SDL_CreateTexture(this->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
-        if (texture == NULL) continue;
-        std::optional<std::vector<BallTypeTailPoint>> optional = getPointsFromType(type);
-        if (!optional.has_value()) continue;
+        float renderY = getSignedFallingBallPos(*ball) + TAIL_SIZE / 2;
+        if (renderY > SCREEN_HEIGHT / 2 + TAIL_SIZE / 2) continue; // Off-screen, skip rendering.
+        std::vector<BallTypeTailPoint>* ptr = getPointsFromType(type);
+        if (ptr == nullptr) continue;
         // Find tail beat.
-        double tailBeat = (double) getMinibeatOfLastPoint(type);
-        std::vector<BallTypeTailPoint>& points = optional.value();
+        double tailBeat = (double) getMinibeatOfLastPoint(type) + ball->at;
+        std::vector<BallTypeTailPoint>& points = *ptr;
         if (points.empty()) continue;
-        // Change target of the renderer to render to the texture.
-        SDL_SetRenderTarget(this->renderer, texture);
         tailBeat /= MINIBEATS_PER_BEAT;
-        float x; // This will be used for where to place the tail segments.
+        float x; // This will be used for where to place the tail.
         //
         auto it = points.begin();
-        float x1 = renderX, x2 = it->x;
-        minibeat y1 = ball->at, y2 = it->minibeats;
+        float x1 = ball->x, x2 = it->x;
+        minibeat y1 = ball->at, y2 = it->minibeats + ball->at;
         //
-        for (float y = getSignedYPosFromBeat(this->beat, ball->speed);
-            y <= getSignedYPosFromBeat(tailBeat, ball->speed);
-            y += 5.0f)
+        double holdStartsFrom = std::max((double) ball->at / MINIBEATS_PER_BEAT, this->beat);
+        if (tailBeat <= holdStartsFrom) continue; // Don't want unnecessary looping.
+        // Create a texture.
+        SDL_Texture* texture = SDL_CreateTexture(this->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
+        if (texture == NULL) continue;
+        // Change target of the renderer to render to the texture.
+        SDL_SetRenderTarget(this->renderer, texture);
+        SDL_SetRenderDrawColor(this->renderer, 0x00, 0x00, 0x00, 0x00);
+        SDL_RenderClear(this->renderer);
+        //
+        float yStart = getSignedYPosFromBeat(holdStartsFrom, ball->speed);
+        float yEnd = getSignedYPosFromBeat(tailBeat, ball->speed);
+        for (float y = yStart; y <= yEnd; y += 1.0f)
         {
-            ASSERT(y1 <= y2);
-            while (y > y2)
+            double yb = getBeatFromSignedYPos(y, ball->speed);
+            if (yb < 0) yb = 0.0;
+            minibeat ymb = yb * MINIBEATS_PER_BEAT;
+            while (ymb > y2)
             {
-                // Go to next segment.
+                // Go to next point.
                 x1 = x2;
                 y1 = y2;
                 ++it;
                 // Break if iterator of points has reached its end.
                 if (it == points.end()) break;
                 x2 = it->x;
-                y2 = it->minibeats;
+                y2 = it->minibeats + ball->at;
             }
             // Break if no more points are available.
             if (it == points.end()) break;
-            x = x1 + (x2 - x1) / (double) (y2 - y1) * (y * MINIBEATS_PER_BEAT - y1);
+            ASSERT(y1 <= y2);
+            double slope = (double) (y2 - y1);
+            if (slope == 0)
+                x = x2;
+            else
+                x = x1 + (x2 - x1) / slope * (ymb - y1);
             destRect = SDL_FRect {
-                x + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2,
-                GAMEPLAY_HEIGHT / 2 - y,
-                BALL_SIZE,
-                BALL_SIZE
+                x + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2 - TAIL_SIZE / 2,
+                GAMEPLAY_HEIGHT / 2 - y - TAIL_SIZE / 2,
+                TAIL_SIZE,
+                TAIL_SIZE
             };
+            SDL_Color color = SDL_Color { 0xFF, 0xFF, 0xFF, 0xFF };
+            if (std::holds_alternative<BallTypePit>(type))
+                color = SDL_Color { 0xFF, 0xCF, 0xCF, 0xFF };
+            SDL_SetTextureColorMod(
+                textureLibrary->tail,
+                color.r,
+                color.g,
+                color.b
+            );
+            SDL_SetTextureAlphaMod(textureLibrary->tail, color.a);
             SDL_RenderTexture(this->renderer, this->textureLibrary->tail, NULL, &destRect);
+            SDL_SetTextureColorMod(
+                textureLibrary->tail,
+                0xFF,
+                0xFF,
+                0xFF
+            );
+            SDL_SetTextureAlphaMod(textureLibrary->tail, 0xFF);
         }
         // Let the renderer render to the window again.
         SDL_SetRenderTarget(this->renderer, NULL);
@@ -169,26 +226,83 @@ void Game::renderQueuedBalls()
         ball < queuedBalls.end();
         ++ball)
     {
-        float renderY = getSignedFallingBallPos(*ball) + BALL_SIZE / 2;
-        if (renderY > SCREEN_HEIGHT / 2 + BALL_SIZE / 2) continue; // Off-screen, skip rendering.
-        float renderX = ball->x - BALL_SIZE / 2;
+        if (!isQueuedBallInteractable(*ball)) continue;            // Is not rendered.
+        float size = getBallSize(*ball);
+        float renderY = getSignedFallingBallPos(*ball) + size / 2;
+        if (renderY > SCREEN_HEIGHT / 2 + size) continue; // Off-screen, skip rendering.
+        float renderX = ball->x - size / 2;
         destRect = SDL_FRect {
             renderX + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2,
             GAMEPLAY_HEIGHT / 2 - renderY,
-            BALL_SIZE,
-            BALL_SIZE
+            size,
+            size
         };
-        minibeat miniBeatsOfBall = ball->at;
-        ColorDivisor colorDivisor = ColorDivisor::getColorDivisor(miniBeatsOfBall);
-        srcRect = this->textureLibrary->createRect(
-            (2 * colorDivisor.getColor() + isFast(ball->speed)) * BALL_SIZE,
-            0,
-            BALL_SIZE,
-            BALL_SIZE
-        );
-        SDL_RenderTexture(this->renderer, this->textureLibrary->balls, &srcRect, &destRect);
+        // Do not render hold fragments as normal balls.
+        std::optional<SDL_Color> fragmentColor;
+        if (std::holds_alternative<BallTypeHoldFragment>(ball->type))
+            fragmentColor = SDL_Color { 0xCF, 0xCF, 0xCF, 0xAF };
+        else if (std::holds_alternative<BallTypePitFragment>(ball->type))
+            fragmentColor = SDL_Color { 0xCF, 0x7F, 0x7F, 0xAF };
+
+        if (fragmentColor.has_value())
+        {
+            SDL_Color color = fragmentColor.value();
+            SDL_SetTextureColorMod(
+                textureLibrary->tail,
+                color.r,
+                color.g,
+                color.b
+            );
+            SDL_SetTextureAlphaMod(textureLibrary->tail, color.a);
+            SDL_RenderTexture(this->renderer, this->textureLibrary->tail, NULL, &destRect);
+            SDL_SetTextureColorMod(
+                textureLibrary->tail,
+                0xFF,
+                0xFF,
+                0xFF
+            );
+            SDL_SetTextureAlphaMod(textureLibrary->tail, 0xFF);
+            continue; // Go to the next ball.
+        }
+        renderIndependentBall(*ball, destRect);
     }
     this->renderFlashesAndJudgement();
+}
+
+void Game::renderIndependentBall(const Ball& ball, SDL_FRect destRect)
+{   
+    minibeat miniBeatsOfBall = ball.at;
+    ColorDivisor colorDivisor = ColorDivisor::getColorDivisor(miniBeatsOfBall);
+    unsigned int id;
+    SDL_FRect srcRect;
+    SDL_Texture* texture;
+    bool isMineLike = std::holds_alternative<BallTypeMine>(ball.type) ||
+        std::holds_alternative<BallTypePit>(ball.type);
+    if (isMineLike)
+    {
+        id = colorDivisor.getColor();
+        texture = this->textureLibrary->mines;
+    }
+    else
+    {
+        id = 2 * colorDivisor.getColor() + isFast(ball.speed);
+        texture = this->textureLibrary->balls;
+    }
+    srcRect = this->textureLibrary->createRect(
+        id * BALL_SIZE,
+        0,
+        BALL_SIZE,
+        BALL_SIZE
+    );
+    if (isMineLike)
+    {
+        // We need rotation for mines.
+        double angleDeg = 90.0 * (this->beat - (double) ball.at / MINIBEATS_PER_BEAT);
+        SDL_RenderTextureRotated(this->renderer, texture, &srcRect, &destRect,
+            angleDeg, NULL, SDL_FLIP_NONE);
+    }
+    else
+        SDL_RenderTexture(this->renderer, texture, &srcRect, &destRect);
 }
 
 void Game::renderEditor()
@@ -225,15 +339,10 @@ void Game::renderEditor()
     drawText("Selected", white, 5, 10, TextAlignment::LEFT_ALIGNED, 0.5f);
     drawText("Speed:", white, 5, 25, TextAlignment::LEFT_ALIGNED, 0.5f);
     drawText(std::to_string(this->selectedSpeed), white, 5, 40, TextAlignment::LEFT_ALIGNED, 0.5f);
-    drawText("Balls:", white, 5, 55, TextAlignment::LEFT_ALIGNED, 0.5f);
-    drawText(std::to_string(this->balls.size()), white, 5, 70, TextAlignment::LEFT_ALIGNED, 0.5f);
+    drawText("Placing Mode:", white, 5, 55, TextAlignment::LEFT_ALIGNED, 0.5f);
+    drawText(getText(this->placingMode), white, 5, 70, TextAlignment::LEFT_ALIGNED, 0.5f);
 
     float yy = 85;
-    for (auto ball = balls.begin(); ball != balls.end(); ++ball)
-    {
-        drawText(std::to_string(ball->at), white, 5, yy, TextAlignment::LEFT_ALIGNED, 0.5f);
-        yy += 15;
-    }
 
     this->drawEditorBalls();
     this->drawDivisorArrow();
@@ -327,12 +436,12 @@ void Game::drawEditorBalls()
     // Now draw lines.
     for (auto ball = this->balls.begin(); ball != this->balls.end(); ++ball)
     {
-        if (std::holds_alternative<BallTypeHold>(ball->type))
+        std::vector<BallTypeTailPoint>* points = getPointsFromType(ball->type);
+        if (points != nullptr)
         {
             float x1 = ball->x, x2;
             minibeat y1 = ball->at, y2;
-            BallTypeHold h = std::get<BallTypeHold>(ball->type);
-            for (auto point = h.points.begin(); point != h.points.end(); ++point)
+            for (auto point = points->begin(); point != points->end(); ++point)
             {
                 x2 = point->x;
                 y2 = ball->at + point->minibeats;
@@ -608,7 +717,6 @@ void Game::drawGhostBall()
 
 void Game::drawEditorBall(const Ball& ball)
 {
-    SDL_Texture* texture = this->textureLibrary->balls;
     minibeat miniBeatsAtEditor = Ball::toMinibeats(this->beat);
     minibeat miniBeatsOfBall   = ball.at;
     ColorDivisor colorDivisor = ColorDivisor::getColorDivisor(miniBeatsOfBall);
@@ -625,10 +733,15 @@ void Game::drawEditorBall(const Ball& ball)
         BALL_SIZE,
         BALL_SIZE
     );
-    SDL_RenderTexture(this->renderer, texture, &srcRect, &destRect);
+    renderIndependentBall(ball, destRect);
     float x = destRect.x + destRect.w * 0.5f;
     float y = destRect.y + destRect.h * 0.5f;
-    drawText(std::to_string(ball.speed).substr(0, 5), colorDivisor.getTextColor(), x, y, TextAlignment::CENTER_ALIGNED, 0.45f);
+    SDL_Color speedTextColor = colorDivisor.getTextColor();
+    if (std::holds_alternative<BallTypeMine>(ball.type) &&
+        std::holds_alternative<BallTypePit>(ball.type))
+        speedTextColor = SDL_Color { 0xFF, 0xFF, 0xFF, 0xFF };
+    drawText(std::to_string(ball.speed).substr(0, 5), speedTextColor,
+        x, y, TextAlignment::CENTER_ALIGNED, 0.45f);
 }
 
 void Game::renderEditorBeatLine(size_t beat, float y)
@@ -802,27 +915,45 @@ void Game::moveTimesDivisor(float direction)
         {
             ball.type = BallTypeNormal {};
         }
+        if (std::holds_alternative<BallTypePit>(ball.type))
+        {
+            ball.type = BallTypeMine {};
+        }
         return;
     }
     else return;
     if (std::holds_alternative<BallTypeNormal>(ball.type))
-    {
         // Normal --> Hold
         ball.type = BallTypeHold {
             { 
                 BallTypeTailPoint { ball.x, holdLength }
-            }
+            },
+            false
         };
-    }
+    else if (std::holds_alternative<BallTypeMine>(ball.type))
+        // Normal --> Hold
+        ball.type = BallTypePit {
+            { 
+                BallTypeTailPoint { ball.x, holdLength }
+            },
+            false
+        };
     else if (std::holds_alternative<BallTypeHold>(ball.type))
-    {
         // Update the hold point.
         ball.type = BallTypeHold {
             { 
                 BallTypeTailPoint { ball.x, holdLength }
-            }
+            },
+            false
         };
-    }
+    else if (std::holds_alternative<BallTypePit>(ball.type))
+        // Update the hold point.
+        ball.type = BallTypePit {
+            { 
+                BallTypeTailPoint { ball.x, holdLength }
+            },
+            false
+        };
 }
 
 void Game::handleMouseWheelEvent(SDL_Event* event)
@@ -855,11 +986,7 @@ bool Game::setTouchedPointOwner()
     float leastDistanceSquared = INFINITY;
     for (auto ball = balls.begin(); ball != balls.end(); ++ball)
     {
-        std::vector<BallTypeTailPoint>* points = nullptr;
-        if (std::holds_alternative<BallTypeHold>(ball->type))
-        {
-            points = &std::get<BallTypeHold>(ball->type).points;
-        }
+        std::vector<BallTypeTailPoint>* points = getPointsFromType(ball->type);
         if (points != nullptr)
         {
             std::vector<BallTypeTailPoint>& vector = *points;
@@ -905,9 +1032,15 @@ void Game::handleMouseButtonDownEvent(SDL_Event* event)
             {
                 // The ball can be placed. Add the ball.
                 float ballX = ballPosition->x - GAMEPLAY_WIDTH / 2;
-                Ball* ball = new Ball(this->beat, this->selectedSpeed, ballX);
+                Ball ball(this->beat, this->selectedSpeed, ballX);
+                // Make required changes to it.
+                if (placingMode == PlacingMode::MINE)
+                {
+                    BallTypeMine type;
+                    ball.type = type;
+                }
                 // Add the ball.
-                ballCheckedForTail = addBall(*ball);
+                ballCheckedForTail = addBall(ball);
             }
             break;
         case SDL_BUTTON_RIGHT:
@@ -1016,6 +1149,12 @@ void Game::handleKeyDownEvent(SDL_Event* event)
         case SDLK_RCTRL:
             shouldClonePoint = true;
             break;
+        case SDLK_P:
+            // Cycle placing mode.
+            placingMode = static_cast<PlacingMode>(static_cast<int>(placingMode) + 1);
+            if (placingMode == PlacingMode::INVALID)
+                placingMode = PlacingMode::BALL;
+            break;
     }
 }
 
@@ -1038,10 +1177,10 @@ void Game::startPlayTest(double beat)
 
 minibeat Game::getMinibeatOfLastPoint(BallType& type)
 {
-    std::optional<std::vector<BallTypeTailPoint>> optional = getPointsFromType(type);
-    if (optional.has_value())
+    std::vector<BallTypeTailPoint>* optional = getPointsFromType(type);
+    if (optional != NULL)
     {
-        std::vector<BallTypeTailPoint>& vec = optional.value();
+        std::vector<BallTypeTailPoint>& vec = *optional;
         if (!vec.empty())
         {
             return vec.rbegin()->minibeats;
@@ -1050,21 +1189,22 @@ minibeat Game::getMinibeatOfLastPoint(BallType& type)
     return 0_mb;
 }
 
-std::optional<std::vector<BallTypeTailPoint>> Game::getPointsFromType(BallType& type)
+std::vector<BallTypeTailPoint>* Game::getPointsFromType(BallType& type)
 {
-    std::optional<std::vector<BallTypeTailPoint>> points {};
+    std::vector<BallTypeTailPoint>* points = nullptr;
     // HOLDs
     if (std::holds_alternative<BallTypeHold>(type))
     {
-        BallTypeHold data = std::get<BallTypeHold>(type);
-        points = data.points;
+        BallTypeHold& data = std::get<BallTypeHold>(type);
+        points = &data.points;
     }
-    // If points do exist:
-    if (points.has_value())
+    // PITS
+    if (std::holds_alternative<BallTypePit>(type))
     {
-        return points;
+        BallTypePit& data = std::get<BallTypePit>(type);
+        points = &data.points;
     }
-    return std::nullopt;
+    return points;
 }
 
 void Game::setQueuedBalls(double startFrom)
@@ -1075,24 +1215,25 @@ void Game::setQueuedBalls(double startFrom)
     std::copy(iterStartFrom, balls.end(), std::back_inserter(queuedBalls));
     for (auto it = queuedBalls.begin(); it != queuedBalls.end(); ++it)
     {
-        if (std::holds_alternative<BallTypeHold>(it->type))
+        std::vector<BallTypeTailPoint>* points = getPointsFromType(it->type);
+        if (points != nullptr)
         {
-            // This ball is a hold.
-            BallTypeHold data = std::get<BallTypeHold>(it->type);
+            // This ball is either a hold or a pit.
             minibeat longBallAt = it->at;
             float longBallX = it->x;
-            // Create hold nodes from 0.25 to hold end incrementing by 0.25.
-            if (data.points.empty()) continue;
+            BallType originalType = it->type;
+            // Create fragments from 0.25 to hold end incrementing by 0.25.
+            if (points->empty()) continue;
             // Get the last point.
-            BallTypeTailPoint lastPoint = *data.points.rbegin();
+            BallTypeTailPoint lastPoint = *points->rbegin();
             for (minibeat node = LONG_BALL_NODE_SPACING; node <= lastPoint.minibeats; node += LONG_BALL_NODE_SPACING)
             {
                 float x = lastPoint.x;
                 // Calculate the appropriate 'x' value.
                 float x1 = longBallX, x2;
                 minibeat y1 = 0_mb, y2;
-                auto point = data.points.begin();
-                while (point != data.points.end())
+                auto point = points->begin();
+                while (point != points->end())
                 {
                     x2 = point->x;
                     y2 = point->minibeats;
@@ -1115,7 +1256,13 @@ void Game::setQueuedBalls(double startFrom)
                 Ball nodeBall(longBallAt + node, it->speed, x);
 
                 // Create type object and put that.
-                BallTypeHoldNode type;
+                BallType type;
+
+                if (std::holds_alternative<BallTypeHold>(originalType))
+                    type = BallTypeHoldFragment {};
+                else if (std::holds_alternative<BallTypePit>(originalType))
+                    type = BallTypePitFragment {};
+                
                 nodeBall.type = type;
 
                 it = queuedBalls.insert(it + 1, nodeBall);
@@ -1340,7 +1487,10 @@ void Game::renderFlashesAndJudgement()
                 &destRect
             );
         }
-        latestFlash = &*flash;
+        // We don't want to overshow an actual judgement
+        // (MISS, PERFECT, GOOD, GREAT) with a psuedo one (like HELD)
+        if (isShownAsTextWhenLast(flash->judgement))
+            latestFlash = &*flash;
     }
     if (latestFlash != NULL)
     {
@@ -1369,6 +1519,25 @@ Judgement Game::getJudgementFromDifference(float difference)
         return Judgement::GOOD;
 }
 
+std::vector<Ball>::iterator Game::handleAfterQueuedBallHit(std::vector<Ball>::iterator it)
+{
+    if (std::holds_alternative<BallTypeHold>(it->type))
+    {
+        BallTypeHold& type = std::get<BallTypeHold>(it->type);
+        // Convert to hit version.
+        type.hit = true;
+        return it + 1;
+    }
+    if (std::holds_alternative<BallTypePit>(it->type))
+    {
+        BallTypePit& type = std::get<BallTypePit>(it->type);
+        // Convert to hit version.
+        type.hit = true;
+        return it + 1;
+    }
+    return queuedBalls.erase(it);
+}
+
 void Game::updateBalls()
 {
     for (auto ball = queuedBalls.begin();
@@ -1377,23 +1546,39 @@ void Game::updateBalls()
         // Check if the ball intersects the rectangle.
         // Taken from https://stackoverflow.com/questions/401847/circle-rectangle-collision-detection-intersection
 
+        if (!isQueuedBallInteractable(*ball))
+        {
+            ++ball;
+            continue; // Non-interactable.
+        }
+
+        float size = BALL_SIZE;
+        if (std::holds_alternative<BallTypeHoldFragment>(ball->type) ||
+            std::holds_alternative<BallTypePitFragment>(ball->type))
+            size = TAIL_SIZE;
+
         float cy = getSignedFallingBallPos(*ball);
 
-        if (cy <= SCREEN_HEIGHT / -2 - BALL_SIZE / 2)
+        if (cy <= SCREEN_HEIGHT / -2 - size / 2)
         {
             // Remove the ball and count it as a miss.
+            Judgement judgement = Judgement::MISS;
+            if (std::holds_alternative<BallTypePitFragment>(ball->type) ||
+                std::holds_alternative<BallTypeMine>(ball->type) ||
+                std::holds_alternative<BallTypePit>(ball->type))
+                judgement = Judgement::AVOIDED_MINE;
             queuedBallFlashes.push_back(BallFlash {
                 seconds,
-                Judgement::MISS,
+                judgement,
                 0.0f,
                 0.0f
             });
-            ball = queuedBalls.erase(ball);
+            ball = handleAfterQueuedBallHit(ball);
             continue;
         }
 
         float cx = ball->x;
-        float cr = BALL_SIZE / 2;
+        float cr = size / 2;
 
         SDL_FRect rect = SDL_FRect {
             paddlePosition - PADDLE_WIDTH / 2,
@@ -1426,14 +1611,24 @@ void Game::updateBalls()
 
         if (isTouching)
         {
-            Judgement judgement = getJudgementFromDifference(std::abs(paddlePosition - ball->x));
+            // If the ball is a hold fragment, the judgement should be HELD.
+            Judgement judgement;
+            if (std::holds_alternative<BallTypeHoldFragment>(ball->type))
+                judgement = Judgement::HELD;
+            else if (std::holds_alternative<BallTypePitFragment>(ball->type) ||
+                std::holds_alternative<BallTypeMine>(ball->type) ||
+                std::holds_alternative<BallTypePit>(ball->type))
+                judgement = Judgement::HIT_MINE;
+            else
+                judgement = getJudgementFromDifference(std::abs(paddlePosition - ball->x));
+            
             queuedBallFlashes.push_back(BallFlash {
                 seconds,
                 judgement,
                 cx,
                 cy
             });
-            ball = queuedBalls.erase(ball);
+            ball = handleAfterQueuedBallHit(ball);
         }
         else
             ++ball;
@@ -1499,9 +1694,21 @@ void Game::moveCurrentPoint(bool clone)
     if (clone)
     {
         BallType& ballType = selectedPointOwner.value()->type;
+        std::vector<BallTypeTailPoint>* points = getPointsFromType(ballType);
         if (std::holds_alternative<BallTypeHold>(ballType))
         {
             BallTypeHold& ballTypeData = std::get<BallTypeHold>(ballType);
+            std::vector<BallTypeTailPoint>::iterator& iterator = selectedPoint.value();
+            BallTypeTailPoint copy = *iterator;
+            if (iterator != ballTypeData.points.end())
+            {
+                ++iterator;
+            }
+            selectedPoint = ballTypeData.points.insert(iterator, copy);
+        }
+        if (std::holds_alternative<BallTypePit>(ballType))
+        {
+            BallTypePit& ballTypeData = std::get<BallTypePit>(ballType);
             std::vector<BallTypeTailPoint>::iterator& iterator = selectedPoint.value();
             BallTypeTailPoint copy = *iterator;
             if (iterator != ballTypeData.points.end())
@@ -1688,4 +1895,15 @@ float Game::getSignedYPosFromBeat(double otherBeat, float speed)
     y += PADDLE_TOP_SIGNED + BALL_SIZE / 2;
 
     return y;
+}
+
+double Game::getBeatFromSignedYPos(float yPos, float speed)
+{
+    // Reverse getSignedYPosFromBeat, look above for reference.
+    yPos -= PADDLE_TOP_SIGNED + BALL_SIZE / 2;
+
+    double amplifiedDifference = yPos / BALL_SPEED;
+    double differenceInBeats = amplifiedDifference / speed;
+
+    return differenceInBeats + beat;
 }

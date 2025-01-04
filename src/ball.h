@@ -8,6 +8,9 @@
 // Type of a normal ball.
 struct BallTypeNormal {};
 
+// Type of a ball mine.
+struct BallTypeMine {};
+
 // Point relative to the start of a hold ball.
 struct BallTypeTailPoint
 {
@@ -15,20 +18,34 @@ struct BallTypeTailPoint
     minibeat minibeats; // Minibeats relative to the tailed ball (e.g. 500 + 7500 (hold) -> 8000)
 };
 
-// Type of a node of a hold ball.
-struct BallTypeHoldNode {};
+// Type of a fragment of a hold ball, i.e. the balls in a hold.
+struct BallTypeHoldFragment {};
+
+// Type of a fragment of a ball pit, i.e. the balls in a pit.
+struct BallTypePitFragment {};
 
 // Type of a hold ball.
 struct BallTypeHold
 {
     std::vector<BallTypeTailPoint> points;
+    bool hit;
+};
+
+// Type of a ball pit.
+struct BallTypePit
+{
+    std::vector<BallTypeTailPoint> points;
+    bool hit;
 };
 
 // Represents the type of a ball.
 using BallType = std::variant<
     BallTypeNormal,
+    BallTypeMine,
     BallTypeHold,
-    BallTypeHoldNode
+    BallTypeHoldFragment,
+    BallTypePit,
+    BallTypePitFragment
 >;
 
 // helper type for the visitor #4
@@ -37,7 +54,7 @@ template<class... Ts> struct overloaded : Ts... { using Ts::operator()...; };
 // explicit deduction guide (not needed as of C++20)
 template<class... Ts> overloaded(Ts...) -> overloaded<Ts...>;
 
-// Represents a ball in gameplay
+// Represents a ball in gameplay/editor
 class Ball
 {
     public:

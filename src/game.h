@@ -51,6 +51,9 @@ const char FONT_PATH[] = "resources/NotoSans-Regular.ttf";
 // Ball size.
 const float BALL_SIZE = 45;
 
+// Tail size (diameter).
+const float TAIL_SIZE = 36;
+
 // Transparent ghost ball's alpha value `0-255`.
 const uint8_t GHOST_BALL_ALPHA = 0x7Fu;
 
@@ -92,10 +95,24 @@ struct Circle
  */
 enum Judgement
 {
-    PERFECT = 0x01,
-    GREAT   = 0x02,
-    GOOD    = 0x03,
-    MISS    = 0x00
+    PERFECT      = 0x01,
+    GREAT        = 0x02,
+    GOOD         = 0x03,
+    MISS         = 0x00,
+    HELD         = 0x04,
+    HIT_MINE     = 0x05,
+    AVOIDED_MINE = 0x06
+};
+
+/*
+ * Placing mode currently selected.
+ */
+enum PlacingMode
+{
+    BALL      = 0x00,
+    MINE      = 0x01,
+    SQUARE    = 0x02,
+    INVALID
 };
 
 /*
@@ -188,6 +205,9 @@ class Game
 
         // Game state.
         GameState gameState = GameState::EDITING_NONE;
+
+        // Selected placing mode.
+        PlacingMode placingMode = PlacingMode::BALL;
 
         // Text input by the user, used in various things.
         std::string inputText = "";
@@ -363,12 +383,18 @@ class Game
         // Gets the signed y pos, like `getSignedFallingBallPos`.
         float getSignedYPosFromBeat(double otherBeat, float speed);
 
+        // Reverses the function of `getSignedYPosFromBeat`.
+        double getBeatFromSignedYPos(float yPos, float speed);
+
+        // Gets the ball size of a ball (i.e. diameter)
+        float getBallSize(Ball& ball);
+
         // Gets the minibeat of the last point of a tailed ball's type (like a hold)
         // Returns 0 if non-existent.
         minibeat getMinibeatOfLastPoint(BallType& type);
 
         // Gets all the tail points of a type.
-        std::optional<std::vector<BallTypeTailPoint>> getPointsFromType(BallType& type);
+        std::vector<BallTypeTailPoint>* getPointsFromType(BallType& type);
         
         // Updates falling balls (in gameplay) and handles collision.
         void updateBalls();
@@ -381,6 +407,15 @@ class Game
 
         // Gets judgement from position difference.
         Judgement getJudgementFromDifference(float difference);
+
+        // Checks if a ball can be hit by a paddle. Non-interactable balls' ball bodies are not rendered.
+        bool isQueuedBallInteractable(Ball& ball);
+
+        // Handles hitting of a QUEUED ball. Returns iterator to next ball.
+        std::vector<Ball>::iterator handleAfterQueuedBallHit(std::vector<Ball>::iterator it);
+
+        // Renders an independent ball (except fragments, which are dependent.)
+        void renderIndependentBall(const Ball& ball, SDL_FRect destRect);
 
         // Paddle width.
         float PADDLE_WIDTH = 125.0f;
@@ -417,6 +452,9 @@ class Game
                 SDL_Color { 0x87, 0xD5, 0xFF, 0x7F }, // bluish
                 SDL_Color { 0x87, 0xFF, 0x9B, 0x7F }, // greenish
                 SDL_Color { 0xDF, 0xFF, 0x87, 0x7F }, // yellowish
+                SDL_Color { 0xFF, 0xFF, 0xFF, 0x7F }, // white - for held
+                SDL_Color { 0xFF, 0x7F, 0x7F, 0x7F }, // redish - for mines
+                SDL_Color { 0x00, 0x00, 0x00, 0x00 }  // no flash for avoiding mines
             };
             return colors[judgement];
         }
@@ -425,10 +463,13 @@ class Game
         constexpr SDL_Color getTextColor(Judgement judgement)
         {
             const SDL_Color colors[] = {
-                SDL_Color { 0xFF, 0x87, 0x87, 0x00 }, // redish
+                SDL_Color { 0xFF, 0x87, 0x87, 0xFF }, // redish
                 SDL_Color { 0x88, 0xDF, 0xFF, 0xFF }, // bluish
                 SDL_Color { 0xAD, 0xFF, 0x87, 0xFF }, // greenish
                 SDL_Color { 0xFF, 0xFA, 0x87, 0xFF }, // yellowish
+                SDL_Color { 0x00, 0x00, 0x00, 0x00 }, // no text color for held
+                SDL_Color { 0x00, 0x00, 0x00, 0x00 }, // no text color for hitting mine
+                SDL_Color { 0x00, 0x00, 0x00, 0x00 }  // nor for avoiding the mines
             };
             return colors[judgement];
         }
@@ -440,19 +481,30 @@ class Game
                 "Miss...",
                 "Perfect!!",
                 "Great!",
-                "Good"
+                "Good",
+                "", // no text for held here.
+                "", // same for hitting mine.
+                ""  // and for avoideing mines.
             };
             return strs[judgement];
         }
 
-        // Get text from selected placable ball.
-        const std::string getTextFromPlacable(SelectedPlacableBall spb)
+        // Get text from a placing mode.
+        const std::string getText(PlacingMode mode)
         {
             const std::string strs[] = {
-                "Normal",
+                "Ball",
+                "Mine",
+                "Square"
             };
-            return strs[spb];
-        };
+            return strs[mode];
+        }
+
+        // Checks if a judgement's text should be considered for taking last judgement to be shown.
+        const bool isShownAsTextWhenLast(Judgement judgement)
+        {
+            return judgement <= Judgement::GOOD;
+        }
 
     public:
         // Delta time passed since last frame.
