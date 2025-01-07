@@ -14,6 +14,14 @@ struct BallTypeMine {};
 // Type of a normal square.
 struct BallTypeSquare {};
 
+// Type of a bouncy ball.
+struct BallTypeBouncy
+{
+    size_t respawns;
+    minibeat interval;
+    double lastHit;
+};
+
 // Point relative to the start of a hold ball.
 struct BallTypeTailPoint
 {
@@ -46,6 +54,7 @@ using BallType = std::variant<
     BallTypeNormal,
     BallTypeMine,
     BallTypeSquare,
+    BallTypeBouncy,
     BallTypeHold,
     BallTypeHoldFragment,
     BallTypePit,

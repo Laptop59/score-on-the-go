@@ -60,6 +60,9 @@ class Serializer
             if (end == inputString.c_str() || *end != '\0') return false;
             return true;
         }
+
+        // Gets all the tail points of a ball's type.
+        static std::vector<BallTypeTailPoint>* getPointsFromType(BallType& type);
 };
 
 #endif

@@ -3,6 +3,7 @@
 
 #include <SDL3/SDL.h>
 #include <cstdint>
+#include <string>
 
 // Unsigned type for minibeat (Note: 48 minibeats = 1 beat)
 using minibeat = uint32_t;
@@ -97,10 +98,27 @@ class ColorDivisor
             return WORTH[value];
         }
 
-        // Get the `th` number (4th, 8th, etc.)
+        // Get the `th` number (`4`th, `8`th, etc.)
         constexpr unsigned int getTh() const {
             unsigned int TH[] = { 0, 4, 8, 12, 16, 24, 32, 48, 64, 192 };
             return TH[value];
+        }
+
+        // Get the `th` string (4th, 8th, etc.)
+        std::string getThString() const {
+            unsigned int ordinal = getTh();
+            std::string str = std::to_string(ordinal);
+            unsigned int belowcent = ordinal % 100U;
+            if (belowcent < 11 || belowcent > 13)
+            {
+                if (belowcent % 10 == 1)
+                    return str + "st";
+                else if (belowcent % 10 == 2)
+                    return str + "nd";
+                else if (belowcent % 10 == 3)
+                    return str + "rd";
+            }
+            return str + "th";
         }
 
         // Get the color index of the divisor.

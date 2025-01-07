@@ -109,9 +109,10 @@ enum Judgement
  */
 enum PlacingMode
 {
-    BALL      = 0x00,
-    MINE      = 0x01,
-    SQUARE    = 0x02,
+    BALL        = 0x00,
+    MINE        = 0x01,
+    SQUARE      = 0x02,
+    BOUNCY      = 0x03,
     INVALID
 };
 
@@ -140,10 +141,27 @@ enum GameState
  */
 enum PaddleKeys
 {
-    LEFT_FAST  = 0x01,
-    LEFT_SLOW  = 0x02,
-    RIGHT_SLOW = 0x04,
-    RIGHT_FAST = 0x08
+    LEFT  = 0x01,
+    HIT1  = 0x02,
+    HIT2  = 0x04,
+    RIGHT = 0x08
+};
+
+/*
+ * Enums representing a key from a custom set of keys for a specific placing mode.
+*/
+enum CustomPlacingModeKey
+{
+    KEY_0  = 0,
+    KEY_1  = 1,
+    KEY_2  = 2,
+    KEY_3  = 3,
+    KEY_4  = 4,
+    KEY_5  = 5,
+    KEY_6  = 6,
+    KEY_7  = 7,
+    KEY_8  = 8,
+    KEY_9  = 9,
 };
 
 /*
@@ -284,6 +302,9 @@ class Game
         // Draws text at a position.
         void drawText(std::string text, SDL_Color color, float x, float y, TextAlignment align, float size);
 
+        // Draws text at a positiom, with outline.
+        void drawTextWithOutline(std::string str, SDL_Color fill, float x, float y, TextAlignment align, float size, int outline, SDL_Color outlineColor);
+
         // Draws a divisor arrow that should be drawn.
         void drawDivisorArrow();
 
@@ -383,6 +404,9 @@ class Game
         // Gets the signed y pos, like `getSignedFallingBallPos`.
         float getSignedYPosFromBeat(double otherBeat, float speed);
 
+        // Gets the signed y pos, but assumes `against` as the current beat.
+        float getSignedYPosFromBeatAgainstAnother(double otherBeat, float speed, double against);
+
         // Reverses the function of `getSignedYPosFromBeat`.
         double getBeatFromSignedYPos(float yPos, float speed);
 
@@ -392,9 +416,6 @@ class Game
         // Gets the minibeat of the last point of a tailed ball's type (like a hold)
         // Returns 0 if non-existent.
         minibeat getMinibeatOfLastPoint(BallType& type);
-
-        // Gets all the tail points of a type.
-        std::vector<BallTypeTailPoint>* getPointsFromType(BallType& type);
         
         // Updates falling balls (in gameplay) and handles collision.
         void updateBalls();
@@ -408,6 +429,9 @@ class Game
         // Gets judgement from position difference.
         Judgement getJudgementFromDifference(float difference);
 
+        // Gets judgement from miliseconds. (Squares)
+        Judgement getJudgementFromMilliseconds(double milliseconds);
+
         // Checks if a ball can be hit by a paddle. Non-interactable balls' ball bodies are not rendered.
         bool isQueuedBallInteractable(Ball& ball);
 
@@ -415,7 +439,13 @@ class Game
         std::vector<Ball>::iterator handleAfterQueuedBallHit(std::vector<Ball>::iterator it);
 
         // Renders an independent ball (except fragments, which are dependent.)
-        void renderIndependentBall(const Ball& ball, SDL_FRect destRect);
+        void renderIndependentBall(const Ball& ball, SDL_FRect destRect, uint8_t alpha = 0xFFu);
+
+        // Converts minibeats to its readable units (e.g. 48 -> 1 4th)
+        std::string toReadableUnits(minibeat miniBeats);
+
+        // Handles a custom placing mode key in the editor.
+        void handleCustomPlacingModeKey(CustomPlacingModeKey key);
 
         // Paddle width.
         float PADDLE_WIDTH = 125.0f;
@@ -443,6 +473,12 @@ class Game
 
         // Ball flash size. (diameter)
         float BALL_FLASH_SIZE = 42.0f;
+
+        // Value to tell the number of respawns a placed bouncy ball SHALL HAVE (editor)
+        size_t editorBouncyRespawns = 1;
+
+        // Value to tell the number of minibeats a placed bouncy ball's interval SHALL BE (editor)
+        minibeat editorBouncyInterval = MINIBEATS_PER_BEAT;
 
         // Get flash color from a judgement.
         constexpr SDL_Color getFlashColor(Judgement judgement)
@@ -484,7 +520,7 @@ class Game
                 "Good",
                 "", // no text for held here.
                 "", // same for hitting mine.
-                ""  // and for avoideing mines.
+                ""  // and for avoiding mines.
             };
             return strs[judgement];
         }
@@ -495,7 +531,8 @@ class Game
             const std::string strs[] = {
                 "Ball",
                 "Mine",
-                "Square"
+                "Square",
+                "Bouncy"
             };
             return strs[mode];
         }
@@ -519,11 +556,17 @@ class Game
         // Font used in rendering the game.
         TTF_Font* font;
 
+        // Extra font used in rendering outlined text. This is used for keeping the main font's cache.
+        TTF_Font* fontOutlined;
+
         // Texture library in rendering the game.
         std::unique_ptr<TextureLibrary> textureLibrary;
 
+        // Paddle keys pressed, but only there for 1 frame.
+        uint8_t paddleKeysPressedOnce = 0b0000;
+
         // Constructor for the Game object.
-        Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font);
+        Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font* fontOutlined);
 
         // Function to update with new delta time.
         void update();

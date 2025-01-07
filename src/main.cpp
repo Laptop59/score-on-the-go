@@ -11,6 +11,7 @@ struct AppContext {
     SDL_Window* window;
     SDL_Renderer* renderer;
     TTF_Font* font;
+    TTF_Font* fontOutlined;
     std::unique_ptr<Game> game;
     SDL_Time time;
     SDL_AppResult app_quit = SDL_APP_CONTINUE;
@@ -51,7 +52,8 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     }
 
     TTF_Font* font = TTF_OpenFont(FONT_PATH, 32);
-    if (font == nullptr)
+    TTF_Font* fontOutlined = TTF_OpenFont(FONT_PATH, 32);
+    if (font == nullptr || fontOutlined == nullptr)
     {
         SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "Opening Game Font Error: %s", SDL_GetError());
         return SDL_APP_FAILURE;
@@ -79,8 +81,9 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     ac->window = window;
     ac->renderer = renderer;
     ac->font = font;
+    ac->fontOutlined = fontOutlined;
     ac->app_quit = SDL_APP_CONTINUE;
-    ac->game = std::unique_ptr<Game> (new Game(renderer, window, font));
+    ac->game = std::unique_ptr<Game> (new Game(renderer, window, font, fontOutlined));
     ac->game->textureLibrary = std::unique_ptr<TextureLibrary> (new TextureLibrary(renderer));
     ac->game->textureLibrary->loadTextures();
 
@@ -99,7 +102,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
 }
 
 SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event* event) {
-    auto* app = (AppContext*)appstate;
+    auto* app = (AppContext*) appstate;
     
     if (event->type == SDL_EVENT_QUIT)
     {
@@ -114,7 +117,7 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event* event) {
 }
 
 SDL_AppResult SDL_AppIterate(void *appstate) {
-    auto* app = (AppContext*)appstate;
+    auto* app = (AppContext*) appstate;
 
     // Update and get delta time.
     SDL_Time newTime = app->time;
@@ -129,6 +132,7 @@ SDL_AppResult SDL_AppIterate(void *appstate) {
     app->game->update();
     app->game->render();
 
+    app->game->paddleKeysPressedOnce = 0b0000;
     return app->app_quit;
 }
 
@@ -139,6 +143,7 @@ void SDL_AppQuit(void* appstate, SDL_AppResult result) {
         SDL_DestroyRenderer(app->renderer);
         SDL_DestroyWindow(app->window);
         TTF_CloseFont(app->font);
+        TTF_CloseFont(app->fontOutlined);
         app->game.reset();
         delete app;
     }
