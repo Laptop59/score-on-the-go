@@ -59,12 +59,6 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
         return SDL_APP_FAILURE;
     }
 
-    if (!IMG_Init(IMG_INIT_PNG))
-    {
-        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "Initializing SDL IMG Error: %s", SDL_GetError());
-        return SDL_APP_FAILURE;
-    }
-
     // Although it isn't necessary, setup audio initialization here.
     MIX_InitFlags audioFlags = MIX_INIT_MP3;
     MIX_InitFlags previousFlags = Mix_Init(0);

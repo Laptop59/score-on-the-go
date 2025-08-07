@@ -1715,6 +1715,7 @@ std::vector<Ball>::iterator Game::handleAfterQueuedBallHit(std::vector<Ball>::it
     if (std::holds_alternative<BallTypeBouncy>(it->type))
     {
         BallTypeBouncy& type = std::get<BallTypeBouncy>(it->type);
+        // SDL_Log("ball was at %d and had interval %d", it->at, type.interval);
         it->at += type.interval;
         if (type.respawns == 0)
         {
@@ -1725,8 +1726,9 @@ std::vector<Ball>::iterator Game::handleAfterQueuedBallHit(std::vector<Ball>::it
         {
             type.respawns--;
             type.lastHit = this->beat;
+            // SDL_Log("ball now has %d respawns with at %d, interval %d last hit at %f x %f", type.respawns, it->at, type.interval, type.lastHit, it->x);
         }
-        return it + 1;
+        return it;
     }
     return queuedBalls.erase(it);
 }
@@ -1759,7 +1761,15 @@ void Game::updateBalls()
             std::holds_alternative<BallTypePitFragment>(ball->type))
             size = TAIL_SIZE;
 
-        if (cy <= SCREEN_HEIGHT / -2 - size / 2)
+        bool missed = cy <= SCREEN_HEIGHT / -2 - size / 2;
+        if (!missed && std::holds_alternative<BallTypeBouncy>(ball->type))
+        {
+            BallTypeBouncy bouncyData = std::get<BallTypeBouncy>(ball->type);
+            // Cannot exceed beat + interval
+            minibeat threshold = ball->at + bouncyData.interval;
+            missed = Ball::toMinibeats(this->beat) >= threshold;
+        }
+        if (missed)
         {
             // Remove the ball and count it as a miss.
             Judgement judgement = Judgement::MISS;
@@ -2188,27 +2198,16 @@ float Game::getSignedFallingBallPos(const Ball& ball)
         // Parabola if applicable.
         if (type.lastHit != -INFINITY)
         {
-            // Get three points.
-            // Point A (x1, y1) = Predicted
-            // Point B (x2, y2) = Apex
-            // Point C (x3, y3) = Previous
             double beats = miniBeats / MINIBEATS_PER_BEAT;
-            double x3 = type.lastHit;
-            double x1 = Ball::toBeats(ball.at);
-            double x2 = x1 + (x3 - x1) / 2.0;
-            float y3 = getSignedYPosFromBeatAgainstAnother(type.lastHit, speed, beats);
-            float y2 = getSignedYPosFromBeatAgainstAnother(beats - Ball::toBeats(type.interval), speed, beats);
-            float y1 = PADDLE_TOP_SIGNED + BALL_SIZE / 2;
-            // f(x) = ax^2 + bx + c. Taken from https://stackoverflow.com/a/717833 
-            double denom = (x1 - x2) * (x1 - x3) * (x2 - x3);
-            double a     = (x3 * (y2 - y1) + x2 * (y1 - y3) + x1 * (y3 - y2)) / denom;
-            double b     = (x3*x3 * (y1 - y2) + x2*x2 * (y3 - y1) + x1*x1 * (y2 - y3)) / denom;
-            double c     = (x2 * x3 * (x2 - x3) * y1 + x3 * x1 * (x3 - x1) * y2 + x1 * x2 * (x1 - x2) * y3) / denom;
-            double yx    = a * std::pow(this->beat, 2) + b * this->beat + c;
-            printf("Points:\n(%f,%f)\n(%f,%f)\n(%f,%f)",x1,y1,x2,y2,x3,y3);
-            printf("a = %f\nb = %f,\nc = %f",a,b,c);
-            printf("THUS y = %f",yx);
-            return (float) yx;
+            double x3 = type.lastHit;            // where the ball last was
+            double x1 = Ball::toBeats(ball.at);  // where the ball is now going
+            float minimum_y = PADDLE_TOP_SIGNED + BALL_SIZE / 2;
+            float y2 = getSignedYPosFromBeatAgainstAnother(beats, speed, Ball::toBeats(ball.at - type.interval));
+
+            float t = (this->beat - x3) / (x1 - x3);
+            float y_quadratic_float = 1 - 4 * std::pow(t - 0.5f, 2);
+
+            y = minimum_y + (y2 - minimum_y) * y_quadratic_float;
         }
     }
 

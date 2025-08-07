@@ -61,6 +61,31 @@ class Serializer
             return true;
         }
 
+        // Checks if a string is an unsigned integer and parses it if so.
+        static bool checkIsUnsignedInt(std::string inputString, size_t &result) {
+            return sscanf(inputString.c_str(), "%zu", &result) == 1;
+        }
+
+        // Checks if a string is an unsigned minibeat and parses it if so.
+        static bool checkIsUnsignedMinibeat(std::string inputString, minibeat &result) {
+            try {
+                result = static_cast<minibeat>(std::stoul(inputString));
+                return true;
+            } catch (std::exception e) {
+                return false;
+            }
+        }
+
+        // Checks if a string is an unsigned integer and parses it if so.
+        static bool checkIsUnsignedInt(std::string inputString, uint32_t &result) {
+            try {
+                result = static_cast<uint32_t>(std::stoul(inputString));
+                return true;
+            } catch (std::exception e) {
+                return false;
+            }
+        }
+
         // Gets all the tail points of a ball's type.
         static std::vector<BallTypeTailPoint>* getPointsFromType(BallType& type);
 };

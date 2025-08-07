@@ -75,6 +75,8 @@ std::string Serializer::saveBallfile(
                         extra = 'm';
                     else if (std::holds_alternative<BallTypeSquare>(ballIter->type))
                         extra = 's';
+                    else if (std::holds_alternative<BallTypeBouncy>(ballIter->type))
+                        extra = 'b';
                     if (extra)
                         output += extra;
                     output += std::to_string(Ball::toBeats(ballIter->at));
@@ -84,10 +86,17 @@ std::string Serializer::saveBallfile(
                     getPointsFromType(ballIter->type);
                     // We only want to omit speed if ball is not hold/pit
                     // (for convenience)
-                    if (ballIter->speed != 1 || points != nullptr)
+                    if (ballIter->speed != 1 || points != nullptr || std::holds_alternative<BallTypeBouncy>(ballIter->type))
                     {
                         output += ':';
                         output += std::to_string(ballIter->speed);
+                    }
+                    if (std::holds_alternative<BallTypeBouncy>(ballIter->type)) {
+                        BallTypeBouncy data = std::get<BallTypeBouncy>(ballIter->type);
+                        output += ":";
+                        output += std::to_string(data.respawns);
+                        output += ":";
+                        output += std::to_string(data.interval);
                     }
                     if (points != nullptr)
                     {    
@@ -173,6 +182,8 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)
             type = BallTypeMine {};
         else if (*ch == 's')
             type = BallTypeSquare {};
+        else if (*ch == 'b')
+            type = BallTypeBouncy {};
         else
             gotoNextChar = false;
         if (gotoNextChar) ++ch;
@@ -233,6 +244,36 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)
                         this->line,
                         std::string("Invalid speed number. (Note: If not specified, it defaults to 1.0) Got: ") + segments.at(2)
                     });
+                }
+                else if (std::holds_alternative<BallTypeBouncy>(type) )
+                {
+                    if (segments.size() != 5)
+                    {
+                        this->errors.push_back((SerializerError) {
+                            this->line,
+                            std::string("Bouncy balls must only have 5 segments, but instead got ") + std::to_string(segments.size())
+                        });
+                        continue;
+                    }
+                    BallTypeBouncy& data = std::get<BallTypeBouncy>(type);
+                    data.lastHit = -INFINITY;
+                    // <beat>:<x>:<speed>:<respawns>:<interval>
+                    // <speed> is not optional
+                    auto reverseIter = segments.rbegin();
+                    std::string intervalString = *reverseIter++;
+                    std::string respawnsString = *reverseIter;
+                    if (!checkIsUnsignedInt(respawnsString, data.respawns)) {
+                        this->errors.push_back((SerializerError) {
+                            this->line,
+                            std::string("Invalid respawns: ") + respawnsString
+                        });
+                    }
+                    if (!checkIsUnsignedMinibeat(intervalString, data.interval)) {
+                        this->errors.push_back((SerializerError) {
+                            this->line,
+                            std::string("Invalid interval: ") + intervalString
+                        });
+                    }
                 }
                 else if (std::holds_alternative<BallTypeHold>(type) ||
                     std::holds_alternative<BallTypePit>(type))
