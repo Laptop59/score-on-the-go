@@ -10,7 +10,7 @@
 #include <algorithm>
 #include "assert.h"
 
-Game::Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font* fontOutlined)
+Game::Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font* fontOutlined, MIX_Mixer* mixer)
 {
     this->renderer = renderer;
     this->font = font;
@@ -23,6 +23,8 @@ Game::Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font*
     this->fileFilter[0] = { "Ballfile", "txt" };
     this->fileFilter[1] = { "All files", "*" };
 
+    this->mixer = mixer;
+    this->track = MIX_CreateTrack(mixer);
     this->music = nullptr;
 }
 
@@ -34,24 +36,30 @@ Game::~Game()
     // Free music.
     if (this->music != nullptr)
     {
-        Mix_FreeMusic(this->music);
+        MIX_DestroyAudio(this->music);
     }
+
+    MIX_DestroyTrack(this->track);
 }
 
 void Game::render()
 {
     // Draw a BG.
+    float scale = getRenderedScale();
+    SDL_SetRenderScale(this->renderer, scale, scale);
     SDL_SetRenderDrawColor(this->renderer, 0x1F, 0x1F, 0x1F, SDL_ALPHA_OPAQUE);
     SDL_RenderClear(this->renderer);
     {
         // Draw another result where gameplay will take place.
+        int height;
+        getRendererSize(nullptr, &height);
         SDL_FRect gameplayRect =
             SDL_FRect
             {
-                (SCREEN_WIDTH - GAMEPLAY_WIDTH) / 2.0f,
-                (SCREEN_HEIGHT - GAMEPLAY_HEIGHT) / 2.0f,
+                getGameplayXoffset(),
+                0,
                 GAMEPLAY_WIDTH,
-                GAMEPLAY_HEIGHT
+                static_cast<float>(height) / getRenderedScale()
             };
         SDL_SetRenderDrawColor(this->renderer, 0x33, 0x33, 0x33, SDL_ALPHA_OPAQUE);
         SDL_RenderFillRect(this->renderer, &gameplayRect);
@@ -69,10 +77,10 @@ void Game::render()
 
 void Game::renderPlaytest()
 {
-    // Render paddle
+    // Render paddle;
     SDL_FRect paddleRect = SDL_FRect {
-        GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2 + paddlePosition - PADDLE_WIDTH / 2,
-        PADDLE_TOP,
+        getGameplayXoffset() + GAMEPLAY_WIDTH / 2 + paddlePosition - PADDLE_WIDTH / 2,
+        PADDLE_TOP + queuedBallsYoffset(),
         PADDLE_WIDTH,
         PADDLE_HEIGHT
     };
@@ -87,7 +95,7 @@ void Game::renderPlaytest()
     SDL_RenderFillRect(this->renderer, &paddleRect);
 
     SDL_Color whiteColor = SDL_Color { 0xFFu, 0xFFu, 0xFFu, 0xFFu };
-    float x = GAMEPLAY_OFFSET + GAMEPLAY_WIDTH + 5;
+    float x = getGameplayXoffset() + GAMEPLAY_WIDTH + 5;
     drawText("Beat: ", whiteColor, x, 25, TextAlignment::LEFT_ALIGNED, 0.4f);
     drawText(std::to_string(beat), whiteColor, x, 40, TextAlignment::LEFT_ALIGNED, 0.4f);
 
@@ -126,6 +134,12 @@ float Game::getBallSize(Ball& ball)
     return BALL_SIZE;
 }
 
+float Game::getGameplayXoffset() {
+    float left;
+    getUnusedPixels(&left, nullptr);
+    return (left / 2) / getRenderedScale() + GAMEPLAY_OFFSET;
+}
+
 void Game::renderQueuedBalls()
 {
     SDL_FRect srcRect, destRect;
@@ -142,7 +156,7 @@ void Game::renderQueuedBalls()
             continue; // Not a long note.
         }
         float renderY = getSignedFallingBallPos(*ball) + TAIL_SIZE / 2;
-        if (renderY > SCREEN_HEIGHT / 2 + TAIL_SIZE / 2) continue; // Off-screen, skip rendering.
+        if (renderY > SCREEN_HEIGHT / 2 + TAIL_SIZE / 2 + queuedBallsYoffset()) continue; // Off-screen, skip rendering.
         std::vector<BallTypeTailPoint>* ptr = Serializer::getPointsFromType(type);
         if (ptr == nullptr) continue;
         // Find tail beat.
@@ -159,7 +173,12 @@ void Game::renderQueuedBalls()
         double holdStartsFrom = std::max((double) ball->at / MINIBEATS_PER_BEAT, this->beat);
         if (tailBeat <= holdStartsFrom) continue; // Don't want unnecessary looping.
         // Create a texture.
-        SDL_Texture* texture = SDL_CreateTexture(this->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, SCREEN_WIDTH, SCREEN_HEIGHT);
+        float renderedScale = getRenderedScale();
+        float renderedWidth = renderedScale * SCREEN_WIDTH;
+        float renderedHeight = renderedScale * SCREEN_HEIGHT;
+        int totalWidth, totalHeight;
+        getRendererSize(&totalWidth, &totalHeight);
+        SDL_Texture* texture = SDL_CreateTexture(this->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, totalWidth, totalHeight);
         if (texture == NULL) continue;
         // Change target of the renderer to render to the texture.
         SDL_SetRenderTarget(this->renderer, texture);
@@ -193,10 +212,10 @@ void Game::renderQueuedBalls()
             else
                 x = x1 + (x2 - x1) / slope * (ymb - y1);
             destRect = SDL_FRect {
-                x + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2 - TAIL_SIZE / 2,
-                GAMEPLAY_HEIGHT / 2 - y - TAIL_SIZE / 2,
-                TAIL_SIZE,
-                TAIL_SIZE
+                (x + getGameplayXoffset() + GAMEPLAY_WIDTH / 2 - TAIL_SIZE / 2) * renderedScale,
+                (GAMEPLAY_HEIGHT / 2 - y - TAIL_SIZE / 2 + queuedBallsYoffset()) * renderedScale,
+                TAIL_SIZE * renderedScale,
+                TAIL_SIZE * renderedScale
             };
             SDL_Color color = SDL_Color { 0xFF, 0xFF, 0xFF, 0xFF };
             if (std::holds_alternative<BallTypePit>(type))
@@ -229,11 +248,11 @@ void Game::renderQueuedBalls()
     {
         if (!isQueuedBallInteractable(*ball)) continue;            // Is not rendered.
         float size = getBallSize(*ball);
-        float renderY = getSignedFallingBallPos(*ball) + size / 2;
+        float renderY = getSignedFallingBallPos(*ball) + size / 2 - queuedBallsYoffset();
         if (renderY > SCREEN_HEIGHT / 2 + size) continue; // Off-screen, skip rendering.
         float renderX = ball->x - size / 2;
         destRect = SDL_FRect {
-            renderX + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2,
+            renderX + getGameplayXoffset() + GAMEPLAY_WIDTH / 2,
             GAMEPLAY_HEIGHT / 2 - renderY,
             size,
             size
@@ -268,6 +287,15 @@ void Game::renderQueuedBalls()
         renderIndependentBall(*ball, destRect);
     }
     this->renderFlashesAndJudgement();
+}
+
+float Game::queuedBallsYoffset()
+{
+    int height;
+    getRendererSize(nullptr, &height);
+    float scale = getRenderedScale();
+    float normalHeight = scale * GAMEPLAY_HEIGHT;
+    return (height - normalHeight) / getRenderedScale();
 }
 
 void Game::renderIndependentBall(const Ball& ball, SDL_FRect destRect, uint8_t alpha)
@@ -341,6 +369,11 @@ void Game::renderEditor()
     size_t later_beat = (size_t) std::ceil(this->beat);
     if (earlier_beat == later_beat) later_beat++;
 
+    float endY = GAMEPLAY_HEIGHT;
+    float yOffset;
+    this->getUnusedPixels(nullptr, &yOffset);
+    endY += yOffset / this->getScale();
+
     // White lines, and translucent ones.
     y = EDITOR_SELECTED_BEAT_Y + this->beatSpacing * (earlier_beat - this->beat);
     do
@@ -361,33 +394,35 @@ void Game::renderEditor()
         y += this->beatSpacing;
         later_beat++;
     }
-    while (y <= SCREEN_HEIGHT);
+    while (y <= endY);
 
     SDL_Color white = SDL_Color { 0xFF, 0xFF, 0xFF, 0xFF };
-    drawText("Selected", white, 5, 10, TextAlignment::LEFT_ALIGNED, 0.5f);
-    drawText("Speed:", white, 5, 25, TextAlignment::LEFT_ALIGNED, 0.5f);
-    drawText(std::to_string(this->selectedSpeed), white, 5, 40, TextAlignment::LEFT_ALIGNED, 0.5f);
-    drawText("Placing Mode:", white, 5, 55, TextAlignment::LEFT_ALIGNED, 0.5f);
-    drawText(getText(this->placingMode), white, 5, 70, TextAlignment::LEFT_ALIGNED, 0.5f);
-    drawText("----------", white, 5, 85, TextAlignment::LEFT_ALIGNED, 0.5f);
-    size_t i = 0;
-    switch (this->placingMode)
-    {
-        case PlacingMode::BOUNCY:
-            // Show extra attributes.
-            drawText("R: " + std::to_string(this->editorBouncyRespawns), white, 5, i++ * 15 + 100, TextAlignment::LEFT_ALIGNED, 0.5f);
-            drawText("[1/2]: +/- 1", white, 5, i++ * 15 + 100, TextAlignment::LEFT_ALIGNED, 0.5f);
-            drawText("I: " + toReadableUnits(this->editorBouncyInterval) + " (" + std::to_string(this->editorBouncyInterval) + ")", white, 5, i++ * 15 + 100, TextAlignment::LEFT_ALIGNED, 0.5f);
-            drawText("[3/4]: +/- 16th", white, 5, i++ * 15 + 100, TextAlignment::LEFT_ALIGNED, 0.5f);
-            drawText("[5/6]: +/- 48th", white, 5, i++ * 15 + 100, TextAlignment::LEFT_ALIGNED, 0.5f);
-            drawText("[7/8]: +/- 192nd", white, 5, i++ * 15 + 100, TextAlignment::LEFT_ALIGNED, 0.5f);
-            drawText("[9/0]: R=1/I=48", white, 5, i++ * 15 + 100, TextAlignment::LEFT_ALIGNED, 0.5f);
-            break;
+    DRAW_TEXT_LINES(5) {
+        DRAW_TEXT_W("Selected");
+        DRAW_TEXT_W("Speed:");
+        DRAW_TEXT_W(std::to_string(this->selectedSpeed));
+        LEAVE_LINE();
+        DRAW_TEXT_W("Mode:");
+        DRAW_TEXT_W(getText(this->placingMode));
+        LEAVE_LINE();
+
+        size_t i = 0;
+        switch (this->placingMode)
+        {
+            case PlacingMode::BOUNCY:
+                // Show extra attributes.
+                DRAW_TEXT_W("R: " + std::to_string(this->editorBouncyRespawns));
+                DRAW_TEXT_W("[1/2]: +/- 1");
+                DRAW_TEXT_W("I: " + toReadableUnits(this->editorBouncyInterval) + " (" + std::to_string(this->editorBouncyInterval) + ")");
+                DRAW_TEXT_W("[3/4]: +/- 16th");
+                DRAW_TEXT_W("[5/6]: +/- 48th");
+                DRAW_TEXT_W("[7/8]: +/- 192nd");
+                DRAW_TEXT_W("[9/0]: R=1/I=48");
+                break;
+        }
     }
 
-    float yy = 85;
-
-    this->drawEditorBalls();
+    this->drawEditorBalls(endY);
     this->drawDivisorArrow();
 
     this->drawSpecificEditorMenu();
@@ -475,7 +510,7 @@ void Game::drawSpecificEditorMenu()
     }
 }
 
-void Game::drawEditorBalls()
+void Game::drawEditorBalls(float endY)
 {
     // We want to try to optimise drawing balls in the editor; there may be thousands of them
     // that won't even be shown to the user.
@@ -489,7 +524,7 @@ void Game::drawEditorBalls()
 
     // Maximum beat
     double max = beat;
-    max += (double) (GAMEPLAY_HEIGHT - EDITOR_SELECTED_BEAT_Y) / this->beatSpacing; // For below gameplay screen, below selected beat.
+    max += (double) (endY - EDITOR_SELECTED_BEAT_Y) / this->beatSpacing; // For below gameplay screen, below selected beat.
     max += (double) BALL_SIZE / this->beatSpacing; // For ball texture to be drawn offscreen.
     max += 1.0f; // Just to be safe.
     if (max < 0) max = 0;
@@ -565,7 +600,7 @@ void Game::drawEditorBalls()
             this->drawText(
                 std::to_string(bpmChange->bpm),
                 SDL_Color { 0xFFu, 0x7Fu, 0x7Fu, 0xFFu },
-                GAMEPLAY_OFFSET + GAMEPLAY_WIDTH + 15,
+                GAMEPLAY_WIDTH + getGameplayXoffset() + 15,
                 EDITOR_SELECTED_BEAT_Y + fromSelectedBeat * this->beatSpacing,
                 TextAlignment::LEFT_ALIGNED,
                 0.5f
@@ -684,7 +719,7 @@ void SDLCALL Game::callbackLoadMusicPicker(void* userdata, const char* const* fi
         const char* file = *filelist;
 
         // Load the music.
-        Mix_Music* music = Mix_LoadMUS(file);
+        MIX_Audio* music = MIX_LoadAudio(game->mixer, file, true);
 
         if (music == NULL)
         {
@@ -695,7 +730,7 @@ void SDLCALL Game::callbackLoadMusicPicker(void* userdata, const char* const* fi
         // Free the existing music.
         if (game->music != NULL)
         {
-            Mix_FreeMusic(game->music);
+            MIX_DestroyAudio(game->music);
         }
         game->music = music;
     }
@@ -777,7 +812,7 @@ void SDLCALL Game::callbackLoadFilePicker(void* userdata, const char* const* fil
 std::optional<GameplayLeftPosition> Game::ballCanBePlaced()
 {
     GameplayLeftPosition pos;
-    pos.x = mousePosition[0] - GAMEPLAY_OFFSET;
+    pos.x = mousePosition[0] - getGameplayXoffset();
     pos.y = mousePosition[1];
 
     if (std::abs(EDITOR_SELECTED_BEAT_Y - pos.y) <= EDITOR_RANGE_SELECTED_BEAT
@@ -796,7 +831,7 @@ void Game::drawGhostBall()
     if (mousePos)
     {
         SDL_FRect destRect = this->textureLibrary->createRect(
-            mousePos->x + GAMEPLAY_OFFSET - (float) (BALL_SIZE) / 2,
+            mousePos->x + getGameplayXoffset() - (float) (BALL_SIZE) / 2,
             EDITOR_SELECTED_BEAT_Y - (float) (BALL_SIZE) / 2,
             BALL_SIZE,
             BALL_SIZE
@@ -840,7 +875,7 @@ void Game::drawEditorBall(const Ball& ball)
     );
     double fromSelectedBeat = Ball::toBeats(ball.at) - this->beat;
     SDL_FRect destRect = this->textureLibrary->createRect(
-        ball.x + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2 - (float) (BALL_SIZE) / 2,
+        ball.x + getGameplayXoffset() + GAMEPLAY_WIDTH / 2 - (float) (BALL_SIZE) / 2,
         EDITOR_SELECTED_BEAT_Y + fromSelectedBeat * this->beatSpacing - (float) (BALL_SIZE) / 2,
         BALL_SIZE,
         BALL_SIZE
@@ -864,11 +899,13 @@ void Game::drawEditorBall(const Ball& ball)
 void Game::renderEditorBeatLine(size_t beat, float y)
 {
     SDL_SetRenderDrawColor(this->renderer, 0xFF, 0xFF, 0xFF, 0xFF);
-    SDL_RenderLine(
-        this->renderer,
-        GAMEPLAY_OFFSET, y,
-        GAMEPLAY_OFFSET + GAMEPLAY_WIDTH, y
-    );
+
+    for (int i = 0; i <= 1; i++)
+        SDL_RenderLine(
+            this->renderer,
+            getGameplayXoffset(), y + i,
+            GAMEPLAY_WIDTH + getGameplayXoffset(), y + i
+        );
 
     // Print a beat number.
     std::string str = std::to_string(beat);
@@ -876,7 +913,7 @@ void Game::renderEditorBeatLine(size_t beat, float y)
     this->drawText(
         str,
         SDL_Color {0xFF, 0xFF, 0xFF, 0xFF},
-        GAMEPLAY_OFFSET - 5,
+        getGameplayXoffset() - 3,
         y,
         TextAlignment::RIGHT_ALIGNED,
         0.5f
@@ -886,11 +923,13 @@ void Game::renderEditorBeatLine(size_t beat, float y)
 
     SDL_SetRenderDrawColor(this->renderer, 0xFF, 0xFF, 0xFF, 0x7F);
     SDL_SetRenderDrawBlendMode(this->renderer, SDL_BLENDMODE_BLEND);
-    SDL_RenderLine(
-        this->renderer,
-        GAMEPLAY_OFFSET, y,
-        GAMEPLAY_OFFSET + GAMEPLAY_WIDTH, y
-    );
+
+    for (int i = 0; i <= 1; i++)
+        SDL_RenderLine(
+            this->renderer,
+            getGameplayXoffset(), y + i,
+            GAMEPLAY_WIDTH + getGameplayXoffset(), y + i
+        );
 }
 
 void Game::drawTextWithOutline(std::string str, SDL_Color fill, float x, float y, TextAlignment align, float size, int outline, SDL_Color outlineColor)
@@ -997,7 +1036,7 @@ void Game::drawDivisorArrow()
 
     SDL_FRect destRect =
         this->textureLibrary->createRect(
-            GAMEPLAY_OFFSET + GAMEPLAY_WIDTH + 10,
+            GAMEPLAY_WIDTH + 10 + getGameplayXoffset(),
             EDITOR_SELECTED_BEAT_Y - (float) DIVISOR_ARROW_HEIGHT * 0.5f,
             DIVISOR_ARROW_WIDTH,
             DIVISOR_ARROW_HEIGHT
@@ -1149,7 +1188,7 @@ bool Game::setTouchedPointOwner()
             std::vector<BallTypeTailPoint>& vector = *points;
             for (auto point = vector.begin(); point != vector.end(); ++point)
             {
-                float mx = mousePosition[0] - GAMEPLAY_OFFSET - GAMEPLAY_WIDTH / 2;
+                float mx = mousePosition[0] - getGameplayXoffset() - GAMEPLAY_WIDTH / 2;
                 float dx = mx - point->x;
                 if (std::abs(dx) > 10) continue;
                 float my = mousePosition[1];
@@ -1339,11 +1378,16 @@ void Game::startPlayTest(double beat)
     this->beat = startPlaytestingBeat;
     // Now expand the queued balls (e.g. holds)
     setQueuedBalls(beat);
-    if (seconds >= 0)
-    {
-        Mix_PlayMusic(this->music, 0);
-        Mix_SetMusicPosition(seconds);
+    if (seconds >= 0) {
+        startPlayingMusic(seconds);
     }
+}
+
+void Game::startPlayingMusic(double seconds) {
+    SDL_PropertiesID props = SDL_CreateProperties();
+    SDL_SetNumberProperty(props, MIX_PROP_PLAY_START_MILLISECOND_NUMBER, std::round(seconds * 1000));
+    MIX_SetTrackAudio(this->track, this->music);
+    MIX_PlayTrack(this->track, props);
 }
 
 minibeat Game::getMinibeatOfLastPoint(BallType& type)
@@ -1432,7 +1476,7 @@ void Game::stopPlayTest()
     warpBeatToDivisor();
     queuedBalls.clear();
     queuedBallFlashes.clear();
-    Mix_HaltMusic();
+    MIX_StopTrack(this->track, 0);
 }
 
 bool Game::handleMenuEvent(SDL_Event* event)
@@ -1592,8 +1636,7 @@ void Game::update()
     // Ball handling.
     if (seconds < 0 && seconds + deltaTimePassed >= 0)
     {
-        Mix_PlayMusic(this->music, 0);
-        Mix_SetMusicPosition(seconds + deltaTimePassed);
+        startPlayingMusic(seconds + deltaTimePassed);
     }
     seconds += deltaTimePassed;
     beat = getBeatFromSeconds(seconds);
@@ -1640,8 +1683,8 @@ void Game::renderFlashesAndJudgement()
             SDL_SetTextureAlphaModFloat(textureLibrary->flash, alpha);
             float flashSize = BALL_FLASH_SIZE * (1.0f + timeDiff * 3.0f);
             SDL_FRect destRect = SDL_FRect {
-                GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2 + flash->x - flashSize / 2,
-                GAMEPLAY_HEIGHT / 2 - flash->y - flashSize / 2,
+                getGameplayXoffset() + GAMEPLAY_WIDTH / 2 + flash->x - flashSize / 2,
+                GAMEPLAY_HEIGHT / 2 - flash->y - flashSize / 2 + queuedBallsYoffset(),
                 flashSize,
                 flashSize
             };
@@ -1664,7 +1707,7 @@ void Game::renderFlashesAndJudgement()
             getText(latestFlash->judgement),
             getTextColor(latestFlash->judgement),
             GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2,
-            GAMEPLAY_HEIGHT / 2,
+            GAMEPLAY_HEIGHT / 2 + queuedBallsYoffset(),
             TextAlignment::CENTER_ALIGNED,
             (1.0f + (seconds - latestFlash->secondsWhenHit) * 1.50f)
         );
@@ -1978,8 +2021,9 @@ void Game::handleEvent(SDL_Event* event)
             }
             break;
         case SDL_EVENT_MOUSE_MOTION:
-            this->mousePosition[0] = event->motion.x;
-            this->mousePosition[1] = event->motion.y;
+            float scaling = getScale();
+            this->mousePosition[0] = event->motion.x / scaling;
+            this->mousePosition[1] = event->motion.y / scaling;
             moveCurrentPoint(shouldClonePoint);
             shouldClonePoint = false;
     }
@@ -2016,7 +2060,7 @@ void Game::moveCurrentPoint(bool clone)
         }
     }
     std::vector<BallTypeTailPoint>::iterator point = selectedPoint.value();
-    point->x = this->mousePosition[0] - GAMEPLAY_OFFSET - GAMEPLAY_WIDTH / 2;
+    point->x = this->mousePosition[0] - getGameplayXoffset() - GAMEPLAY_WIDTH / 2;
     double ballBeats = this->beat + (this->mousePosition[1] - EDITOR_SELECTED_BEAT_Y) / beatSpacing;
     ballBeats -= Ball::toBeats(this->selectedPointOwner.value()->at);
     point->minibeats = Ball::toMinibeats(ballBeats);
@@ -2138,6 +2182,56 @@ double Game::getBeatFromSeconds(double seconds)
     }
 
     return currentBeat;
+}
+
+void Game::getWindowSize(int *width, int *height)
+{
+    SDL_GetWindowSize(this->window, width, height);
+}
+
+void Game::getRendererSize(int *width, int *height)
+{
+    SDL_GetWindowSizeInPixels(this->window, width, height);
+}
+
+void Game::getAspectRatioWindowSize(float* width, float* height)
+{
+    float scale = getScale();
+
+    if (width != nullptr)
+        *width = scale * SCREEN_WIDTH;
+
+    if (height != nullptr)
+        *height = scale * SCREEN_HEIGHT;
+}
+
+void Game::getUnusedPixels(float* left, float* top)
+{
+    float aspectRatioWidth, aspectRatioHeight;
+    int windowWidth, windowHeight;
+
+    getAspectRatioWindowSize(&aspectRatioWidth, &aspectRatioHeight);
+    getWindowSize(&windowWidth, &windowHeight);
+
+    if (left != nullptr)
+        *left = windowWidth - aspectRatioWidth;
+
+    if (top != nullptr)
+        *top = windowHeight - aspectRatioHeight;
+}
+
+float Game::getScale()
+{
+    int width, height;
+    getWindowSize(&width, &height);
+    return std::min((float) width / SCREEN_WIDTH, (float) height / SCREEN_HEIGHT);
+}
+
+float Game::getRenderedScale()
+{
+    int width, height;
+    getRendererSize(&width, &height);
+    return std::min((float) width / SCREEN_WIDTH, (float) height / SCREEN_HEIGHT);
 }
 
 double Game::getSecondsFromBeat(double beat)

@@ -15,6 +15,9 @@
 
 // Constants
 
+// Title of the game.
+const char TITLE[] = "Score on the Go";
+
 // No. of pixels in width the gameplay area has.
 const float GAMEPLAY_WIDTH = 480.0f;
 
@@ -194,6 +197,21 @@ struct BallFlash
     float y;
 };
 
+#define WHITE (SDL_Color {0xFF, 0xFF, 0xFF, 0xFF})
+#define TEXT_LINE_SPACING (14)
+
+/* Helper macro for making text for editing drawn easily. */
+#define DRAW_TEXT_LINES(xPos) for (float _DTL_x = (xPos), _DTL_y = 10, _DTL_done = 0; _DTL_done == 0; _DTL_done = INFINITY)
+
+/** Draw text line with a color. */
+#define DRAW_TEXT(string, color) drawText((string), (color), _DTL_x, _DTL_y, TextAlignment::LEFT_ALIGNED, 0.4f); _DTL_y += TEXT_LINE_SPACING;
+
+/** Draw text line with white color. */
+#define DRAW_TEXT_W(string) DRAW_TEXT((string), WHITE);
+
+/** Leave a line in the text list. */
+#define LEAVE_LINE() _DTL_y += TEXT_LINE_SPACING;
+
 /*
  * An object representing the game.
  */
@@ -248,7 +266,7 @@ class Game
         // Index of ball for checking for creation of holds.
         size_t ballCheckedForTail = SIZE_MAX;
 
-        // Mouse position `[X, Y]`
+        // Mouse position `[X, Y]`. Its range is never changed and uses SCREEN_WIDTH & SCREEN_HEIGHT.
         float mousePosition[2] = { INFINITY, INFINITY };
 
         // Paddle keys pressed.
@@ -272,8 +290,14 @@ class Game
         // Selected color divisor.
         ColorDivisor selectedDivisor = ColorDivisor::DIVISOR_4TH;
 
+        // Mixer to use for playing audio.
+        MIX_Mixer* mixer;
+
         // Music to play.
-        Mix_Music* music;
+        MIX_Audio* music;
+
+        // Track that plays the current string.
+        MIX_Track* track;
 
         // Selected point's owner,
         std::optional<std::vector<Ball>::iterator> selectedPointOwner;
@@ -283,6 +307,9 @@ class Game
 
         // Whether the point should be cloned.
         bool shouldClonePoint;
+
+        // Start playing music.
+        void startPlayingMusic(double seconds);
 
         // Start playtesting from a beat.
         void startPlayTest(double beat);
@@ -313,6 +340,9 @@ class Game
 
         // Draws an additional editor menu depending on GameState.
         void drawSpecificEditorMenu();
+
+        // Draw balls in the editor for editing.
+        void drawEditorBalls(float endY);
 
         // Checks whether a 'ball' is fast enough to have a thunderbolt symbol.
         bool isFast(float ballSpeed);
@@ -380,6 +410,9 @@ class Game
         // Renders queued balls.
         void renderQueuedBalls();
 
+        // Gets the rendered offset of queued balls.
+        float queuedBallsYoffset();
+
         // Resets text input.
         void resetInput();
 
@@ -412,6 +445,9 @@ class Game
 
         // Gets the ball size of a ball (i.e. diameter)
         float getBallSize(Ball& ball);
+
+        // Gets the offset of the gameplay region.
+        float getGameplayXoffset();
 
         // Gets the minibeat of the last point of a tailed ball's type (like a hold)
         // Returns 0 if non-existent.
@@ -566,7 +602,7 @@ class Game
         uint8_t paddleKeysPressedOnce = 0b0000;
 
         // Constructor for the Game object.
-        Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font* fontOutlined);
+        Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font* fontOutlined, MIX_Mixer* mixer);
 
         // Function to update with new delta time.
         void update();
@@ -582,6 +618,24 @@ class Game
 
         // Get beat from seconds.
         double getBeatFromSeconds(double seconds);
+
+        // Get current window size.
+        void getWindowSize(int* width, int* height);
+
+        // Get current renderer size. (DPI makes this different from window size sometimes)
+        void getRendererSize(int *width, int *height);
+
+        // Get aspect ratio window size.
+        void getAspectRatioWindowSize(float* width, float* height);
+
+        // Get the width/height of pixels 'unused' due to scaling.
+        void getUnusedPixels(float* left, float* top);
+
+        // Get current scaling of elements in the game.
+        float getScale();
+
+        // Get current scaling of rendered elements in the game.
+        float getRenderedScale();
 
         // Deconstructor for the Game object.
         ~Game();

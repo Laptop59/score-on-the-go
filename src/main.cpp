@@ -15,29 +15,24 @@ struct AppContext {
     std::unique_ptr<Game> game;
     SDL_Time time;
     SDL_AppResult app_quit = SDL_APP_CONTINUE;
+    MIX_Mixer* mixer;
 };
 
 SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
-    // init the library, here we make a window so we only need the Video capabilities.
+    // Initialize the library with VIDEO capabilities.
     if (!SDL_Init(SDL_INIT_VIDEO))
     {
         SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Initialisation Error: %s", SDL_GetError());
         return SDL_APP_FAILURE;
     }
     
-    // create a window
-    SDL_Window* window = SDL_CreateWindow("Score on the Go", SCREEN_WIDTH, SCREEN_HEIGHT, 0);
-    if (!window)
+    // Create a window and the renderer.
+    SDL_Renderer* renderer;
+    SDL_Window* window;
+
+    if (!SDL_CreateWindowAndRenderer(TITLE, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_MAXIMIZED | SDL_WINDOW_RESIZABLE, &window, &renderer))
     {
-        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Window Creation Error: %s", SDL_GetError());
-        return SDL_APP_FAILURE;
-    }
-    
-    // a renderer
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, NULL);
-    if (!renderer)
-    {
-        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Renderer Creation Error: %s", SDL_GetError());
+        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Window/Renderer Error: %s", SDL_GetError());
         return SDL_APP_FAILURE;
     }
     
@@ -59,25 +54,24 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
         return SDL_APP_FAILURE;
     }
 
-    // Although it isn't necessary, setup audio initialization here.
-    MIX_InitFlags audioFlags = MIX_INIT_MP3;
-    MIX_InitFlags previousFlags = Mix_Init(0);
-    if (Mix_Init(audioFlags) != audioFlags | previousFlags)
+    // Setup audio initialization here.
+    if (!MIX_Init())
     {
-        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "Warning: SDL MIX Error: %s", SDL_GetError());
+        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "Warning: SDL MIX could not initialize: %s", SDL_GetError());
     }
-
-    // Open an audio device.
-    Mix_OpenAudio(0, NULL);
 
     // Set up the application data
     AppContext* ac = new AppContext();
+
+    // Open an audio device.
+    ac->mixer = MIX_CreateMixerDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, nullptr);
+
     ac->window = window;
     ac->renderer = renderer;
     ac->font = font;
     ac->fontOutlined = fontOutlined;
     ac->app_quit = SDL_APP_CONTINUE;
-    ac->game = std::unique_ptr<Game> (new Game(renderer, window, font, fontOutlined));
+    ac->game = std::unique_ptr<Game> (new Game(renderer, window, font, fontOutlined, ac->mixer));
     ac->game->textureLibrary = std::unique_ptr<TextureLibrary> (new TextureLibrary(renderer));
     ac->game->textureLibrary->loadTextures();
 
@@ -97,7 +91,6 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
 
 SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event* event) {
     auto* app = (AppContext*) appstate;
-    
     if (event->type == SDL_EVENT_QUIT)
     {
         app->app_quit = SDL_APP_SUCCESS;
@@ -134,16 +127,16 @@ void SDL_AppQuit(void* appstate, SDL_AppResult result) {
     auto* app = (AppContext*) appstate;
 
     if (app) {
+        app->game.reset();
         SDL_DestroyRenderer(app->renderer);
         SDL_DestroyWindow(app->window);
         TTF_CloseFont(app->font);
         TTF_CloseFont(app->fontOutlined);
-        app->game.reset();
+        MIX_DestroyMixer(app->mixer);
         delete app;
     }
 
-    Mix_CloseAudio();
-    Mix_Quit();
+    MIX_Quit();
     TTF_Quit();
     SDL_Quit();
     SDL_Log("Score on the Go: Bye!");
