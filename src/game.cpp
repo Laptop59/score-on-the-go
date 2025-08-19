@@ -1706,7 +1706,7 @@ void Game::renderFlashesAndJudgement()
         drawText(
             getText(latestFlash->judgement),
             getTextColor(latestFlash->judgement),
-            GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2,
+            getGameplayXoffset() + GAMEPLAY_WIDTH / 2,
             GAMEPLAY_HEIGHT / 2 + queuedBallsYoffset(),
             TextAlignment::CENTER_ALIGNED,
             (1.0f + (seconds - latestFlash->secondsWhenHit) * 1.50f)
