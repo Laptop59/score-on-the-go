@@ -27,11 +27,13 @@ std::vector<BallTypeTailPoint>* Serializer::getPointsFromType(BallType& type)
 
 std::string Serializer::saveBallfile(
     std::vector<Ball>& balls,
-    std::vector<BpmChange>& bpmChanges
+    std::vector<BpmChange>& bpmChanges,
+    std::vector<PaddleWidthChange>& paddleWidthChanges
 )
 {
     auto ballIter = balls.begin();
     auto bpmChangesIter = bpmChanges.begin();
+    auto paddleWidthChangesIter = paddleWidthChanges.begin();
     std::string output = "";
     while (true)
     {
@@ -39,8 +41,18 @@ std::string Serializer::saveBallfile(
         // `0`: None
         // `1`: Ball
         // `2`: BPM Change
+        // `3`: Paddle width change
         uint8_t next = 0;
         double leastBeat = INFINITY;
+         // Prioritize Paddle Width changes over BPM changes.
+        if (paddleWidthChangesIter != paddleWidthChanges.end())
+        {
+            if (paddleWidthChangesIter->beat < leastBeat)
+            {
+                leastBeat = paddleWidthChangesIter->beat;
+                next = 3;
+            }
+        }
         // Prioritize BPM changes over balls.
         if (bpmChangesIter != bpmChanges.end())
         {
@@ -120,6 +132,14 @@ std::string Serializer::saveBallfile(
                 output += ":bpm\n";
                 ++bpmChangesIter;
                 break;
+            case 3:
+                // PW change.
+                output += std::to_string(paddleWidthChangesIter->beat);
+                output += ':';
+                output += std::to_string(paddleWidthChangesIter->width);
+                output += ":pw\n";
+                ++paddleWidthChangesIter;
+                break;
         }
     }
     if (!output.empty())
@@ -138,6 +158,7 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)
     this->errors.clear();
     this->lines.clear();
     this->bpmChanges.clear();
+    this->paddleWidthChanges.clear();
 
     std::vector<Ball> balls;
 
@@ -238,6 +259,15 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)
                     });
                     continue;
                 }
+                else if (segments.at(2).compare(paddleWidthString) == 0)
+                {
+                    // Add paddle width change.
+                    this->paddleWidthChanges.push_back((PaddleWidthChange) {
+                        beat,
+                        (float) x
+                    });
+                    continue;
+                }
                 else if (!checkIsDouble(segments.at(2), speed))
                 {
                     this->errors.push_back((SerializerError) {
@@ -333,7 +363,8 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)
     {
         SerializerSuccess success {
             balls,
-            this->bpmChanges
+            this->bpmChanges,
+            this->paddleWidthChanges
         };
         // Return errors.
         SerializerResult result {

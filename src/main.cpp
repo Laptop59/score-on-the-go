@@ -30,7 +30,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     SDL_Renderer* renderer;
     SDL_Window* window;
 
-    if (!SDL_CreateWindowAndRenderer(TITLE, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_MAXIMIZED | SDL_WINDOW_RESIZABLE, &window, &renderer))
+    if (!SDL_CreateWindowAndRenderer(NAME, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_MAXIMIZED | SDL_WINDOW_RESIZABLE, &window, &renderer))
     {
         SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Window/Renderer Error: %s", SDL_GetError());
         return SDL_APP_FAILURE;

@@ -15,8 +15,11 @@
 
 // Constants
 
-// Title of the game.
-const char TITLE[] = "Score on the Go";
+// Title/Name of the game.
+const char NAME[] = "Score on the Go";
+
+// Organization of this game.
+const char ORG[] = "Laptop59";
 
 // No. of pixels in width the gameplay area has.
 const float GAMEPLAY_WIDTH = 480.0f;
@@ -56,6 +59,9 @@ const float BALL_SIZE = 45;
 
 // Tail size (diameter).
 const float TAIL_SIZE = 36;
+
+// Default spacing between two beats.
+const float DEFAULT_BEAT_SPACING = 45;
 
 // Transparent ghost ball's alpha value `0-255`.
 const uint8_t GHOST_BALL_ALPHA = 0x7Fu;
@@ -143,7 +149,8 @@ enum GameState
     PLAYTESTING        = 0x01,
     EDITING_NONE       = 0x02,
     EDITING_BPM        = 0x03,
-    EDITING_HELP       = 0x04
+    EDITING_HELP       = 0x04,
+    EDITING_PW         = 0x05
 };
 
 /*
@@ -230,7 +237,7 @@ struct DTL_State
 #define DRAW_TEXT(string, color) drawText((string), (color), _DTL_.x, _DTL_.y, TextAlignment::LEFT_ALIGNED, _DTL_.fontScale); _DTL_.y += _DTL_.fontScale * TEXT_LINE_SPACING
 
 /** Draw a help line using two text drawing calls. */
-#define DRAW_HELP(key, string) drawWhiteRect(_DTL_.x + KEY_MARGIN - KEY_WIDTH / 2, _DTL_.y - KEY_HEIGHT / 2, KEY_WIDTH, KEY_HEIGHT); drawText((key), BLACK, _DTL_.x + KEY_MARGIN, _DTL_.y, TextAlignment::CENTER_ALIGNED, _DTL_.fontScale); drawText((string), WHITE, _DTL_.x + KEY_MARGIN + KEY_SEPARATION, _DTL_.y, TextAlignment::LEFT_ALIGNED, _DTL_.fontScale); _DTL_.y += _DTL_.fontScale * TEXT_LINE_SPACING
+#define DRAW_HELP(key, string) drawWhiteRect(_DTL_.x + KEY_MARGIN - KEY_WIDTH / 2, _DTL_.y - KEY_HEIGHT / 2, KEY_WIDTH, KEY_HEIGHT); drawTextWithOutline((key), BLACK, _DTL_.x + KEY_MARGIN, _DTL_.y, TextAlignment::CENTER_ALIGNED, 0.25f, 1, BLACK); drawText((string), WHITE, _DTL_.x + KEY_MARGIN + KEY_SEPARATION, _DTL_.y, TextAlignment::LEFT_ALIGNED, _DTL_.fontScale); _DTL_.y += _DTL_.fontScale * TEXT_LINE_SPACING
 
 /** Draw text line with white color. */
 #define DRAW_TEXT_W(string) DRAW_TEXT((string), WHITE)
@@ -244,11 +251,47 @@ struct DTL_State
 class Game
 {
     private:
+        //////////////////////////////// CONSTANTS ///////////////////////////////////////
+
+        // Default paddle width.
+        float DEFAULT_PADDLE_WIDTH = 125.0f;
+
+        // Maximum from left the paddle can go in either side.
+        float PADDLE_MAX_LEFT = GAMEPLAY_WIDTH / 2 - 13.0f;
+
+        // Paddle top pixel.
+        float PADDLE_TOP = GAMEPLAY_HEIGHT - 74.0f;
+
+        // Paddle top pixel in `+-` form (Scratch relative)
+        float PADDLE_TOP_SIGNED = 180.0f - PADDLE_TOP;
+
+        // Paddle height.
+        float PADDLE_HEIGHT = 22.0f;
+
+        // Paddle speed (per second).
+        float PADDLE_SPEED = 4.0f * 30;
+
+        // Time it takes to fully complete the change of paddle width.
+        double PADDLE_TRANSITION_DURATION = 1.0;
+
+        // Default ball speed.
+        float BALL_SPEED = 100.0f;
+
+        // Ball flash expiry, the time it takes to do so for the time it was hit. Used for judgement showing.
+        double BALL_FLASH_EXPIRY = 20.0 / 30;
+
+        // Ball flash size. (diameter)
+        float BALL_FLASH_SIZE = 42.0f;
+        //////////////////////////////////////////////////////////////////////////////////
+
         // Current beat.
         double beat = 0.0;
 
         // Current seconds in the ballfile.
         double seconds = 0.0;
+
+        // Whether 'shaded' text should be drawn.
+        bool shadedTextEnabled = false;
 
         // Selected ball to place.
         SelectedPlacableBall selectedToPlace = SelectedPlacableBall::NORMAL;
@@ -283,11 +326,20 @@ class Game
         // BPM changes in the song.
         std::vector<BpmChange> bpmChanges = {(BpmChange) {0.0, DEFAULT_BPM}};
 
+        // Paddle width changes in the strong.
+        std::vector<PaddleWidthChange> paddleWidthChanges = {(PaddleWidthChange) {0.0, DEFAULT_PADDLE_WIDTH}};
+
         // Current circle speed for editing.
         float selectedSpeed = 1.0f;
 
         // Whether left mouse is held down.
         bool leftMouseHeld = false;
+
+        // The offset of the beat lines (negative = up, positive = down)
+        float beatLinesOffset = 0.0f;
+
+        // The speed modifier of balls (global)
+        float globalSpeedModifier = 1.0f;
 
         // Index of ball for checking for creation of holds.
         size_t ballCheckedForTail = SIZE_MAX;
@@ -299,7 +351,7 @@ class Game
         uint8_t paddleKeysPressed = 0b0000;
         
         // Current amount of space in `y` dimension between two beats.
-        float beatSpacing = 45.0f;
+        float beatSpacing = DEFAULT_BEAT_SPACING;
 
         // If a file picker is current active, whether it would be saving/loading.
         bool filePickerOpen = false;
@@ -364,11 +416,11 @@ class Game
         // Draws text at a position.
         void drawText(std::string text, SDL_Color color, float x, float y, TextAlignment align, float size);
 
-        // Draws text at a positiom, with outline.
+        // Draws text at a position, with outline.
         void drawTextWithOutline(std::string str, SDL_Color fill, float x, float y, TextAlignment align, float size, int outline, SDL_Color outlineColor);
 
         // Draws a divisor arrow that should be drawn.
-        void drawDivisorArrow();
+        void drawDivisorIndicator();
 
         // Draws a ghost ball that 'could' be put.
         void drawGhostBall();
@@ -409,8 +461,14 @@ class Game
         // Removes a ball in the balls vector, returning a new iterator to the vector for continuing looping. DO NOT CALL THIS FUNCTION AT THE SAME TIME THE VECTOR'S ITERATORS ARE USED!
         std::vector<Ball>::iterator removeBall(std::vector<Ball>::iterator ball);
 
+        // Move divisor with an event so that other things can also be handled.
+        void movesTimesDivisorWithEvent(float amount, SDL_Event *event);
+
         // Adds a bpm change in their vector. DO NOT CALL THIS FUNCTION AT THE SAME TIME THE VECTOR'S ITERATORS ARE USED!
         void addBpmChange(const BpmChange& bpmChange);
+
+        // Adds a paddle width change in their vector. DO NOT CALL THIS FUNCTION AT THE SAME TIME THE VECTOR'S ITERATORS ARE USED!
+        void addPaddleWidthChange(const PaddleWidthChange &paddleWidthChange);
 
         // Draws balls in the editor.
         void drawEditorBalls();
@@ -481,6 +539,12 @@ class Game
         // Reverses the function of `getSignedYPosFromBeat`.
         double getBeatFromSignedYPos(float yPos, float speed);
 
+        // Save preferences of the user.
+        bool savePrefs();
+
+        // Load preferences of the user.
+        bool loadPrefs();
+
         // Gets the ball size of a ball (i.e. diameter)
         float getBallSize(Ball& ball);
 
@@ -515,38 +579,14 @@ class Game
         // Renders an independent ball (except fragments, which are dependent.)
         void renderIndependentBall(const Ball& ball, SDL_FRect destRect, uint8_t alpha = 0xFFu);
 
+        // Get the y-level of the editor selected beat.
+        float getEditorSelectedBeatY();
+
         // Converts minibeats to its readable units (e.g. 48 -> 1 4th)
         std::string toReadableUnits(minibeat miniBeats);
 
         // Handles a custom placing mode key in the editor.
         void handleCustomPlacingModeKey(CustomPlacingModeKey key);
-
-        // Default paddle width.
-        float DEFAULT_PADDLE_WIDTH = 125.0f;
-
-        // Maximum from left the paddle can go in either side.
-        float PADDLE_MAX_LEFT = GAMEPLAY_WIDTH / 2 - 13.0f;
-
-        // Paddle top pixel.
-        float PADDLE_TOP = GAMEPLAY_HEIGHT - 74.0f;
-
-        // Paddle top pixel in `+-` form (Scratch relative)
-        float PADDLE_TOP_SIGNED = 180.0f - PADDLE_TOP;
-
-        // Paddle height.
-        float PADDLE_HEIGHT = 22.0f;
-
-        // Paddle speed (per second).
-        float PADDLE_SPEED = 4.0f * 30;
-
-        // Default ball speed.
-        float BALL_SPEED = 100.0f;
-
-        // Ball flash expiry, the time it takes to do so for the time it was hit. Used for judgement showing.
-        double BALL_FLASH_EXPIRY = 20.0 / 30;
-
-        // Ball flash size. (diameter)
-        float BALL_FLASH_SIZE = 42.0f;
 
         // Value to tell the number of respawns a placed bouncy ball SHALL HAVE (editor)
         size_t editorBouncyRespawns = 1;
@@ -650,6 +690,12 @@ class Game
 
         // Get current paddle width.
         float getPaddleWidth();
+
+        // Get paddle width at a beat.
+        float getPaddleWidth(double beat);
+
+        // Get the interpolated paddle width at the current beat.
+        float getInterpolatedPaddleWidth();
 
         // Function to handle an SDL_Event.
         void handleEvent(SDL_Event* event);

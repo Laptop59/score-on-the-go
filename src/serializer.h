@@ -6,13 +6,14 @@
 #include <variant>
 #include <string>
 #include <optional>
-#include "bpm.h"
+#include "change.h"
 
 // Represents a serializer success.
 struct SerializerSuccess
 {
     std::vector<Ball> balls;
     std::vector<BpmChange> bpmChanges;
+    std::vector<PaddleWidthChange> paddleWidthChanges;
 };
 
 // Represents a serializer error.
@@ -34,6 +35,9 @@ using SerializerResult = std::variant<SerializerSuccess, SerializerFailure>;
 // Used in parsing ballfiles for bpm changes.
 const std::string bpmString = "bpm";
 
+// Used in parsing ballfiles for paddle width changes.
+const std::string paddleWidthString = "pw";
+
 class Serializer
 {
     private:
@@ -41,13 +45,14 @@ class Serializer
         std::vector<SerializerError> errors;
         std::vector<std::vector<char>> lines;
         std::vector<BpmChange> bpmChanges;
+        std::vector<PaddleWidthChange> paddleWidthChanges;
 
     public:
         // Creates a new serializer for use.
         Serializer();
 
         // Saves a ball file and returns string contents.
-        std::string saveBallfile(std::vector<Ball>& balls, std::vector<BpmChange>& bpmChanges);
+        std::string saveBallfile(std::vector<Ball> &balls, std::vector<BpmChange> &bpmChanges, std::vector<PaddleWidthChange> &paddleWidthChanges);
         
         // Reads a ball file from its contents and returns the result.
         // Note: DO NOT PASS `NULL`/`nullptr` into the contents.
