@@ -6,8 +6,10 @@
 #include <cmath>
 #include <string>
 #include <iostream>
+#include <sstream>
 #include <optional>
 #include <algorithm>
+#include <iomanip>
 #include "assert.h"
 
 Game::Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font* fontOutlined, MIX_Mixer* mixer)
@@ -75,13 +77,18 @@ void Game::render()
     SDL_RenderPresent(this->renderer);
 }
 
+float Game::getPaddleWidth()
+{
+    return 125.0f;
+}
+
 void Game::renderPlaytest()
 {
     // Render paddle;
     SDL_FRect paddleRect = SDL_FRect {
-        getGameplayXoffset() + GAMEPLAY_WIDTH / 2 + paddlePosition - PADDLE_WIDTH / 2,
+        getGameplayXoffset() + GAMEPLAY_WIDTH / 2 + paddlePosition - getPaddleWidth() / 2,
         PADDLE_TOP + queuedBallsYoffset(),
-        PADDLE_WIDTH,
+        getPaddleWidth(),
         PADDLE_HEIGHT
     };
     SDL_SetRenderDrawColor(this->renderer, 0xFFu, 0xFFu, 0xFFu, 0xFFu);
@@ -348,13 +355,13 @@ void Game::renderIndependentBall(const Ball& ball, SDL_FRect destRect, uint8_t a
             minibeat toNext = miniBeatsOfBall + bounce.interval;
             ColorDivisor nextColorDivisor = ColorDivisor::getColorDivisor(toNext);
             drawTextWithOutline(
-                std::to_string(bounce.respawns), 
+                std::to_string(bounce.respawns + 1), 
                 nextColorDivisor.getTextColor(),
                 destRect.x + destRect.w / 2,
                 destRect.y + destRect.h / 2,
                 TextAlignment::CENTER_ALIGNED,
                 1.0f,
-                1,
+                4,
                 SDL_Color { 0xFF, 0xFF, 0xFF, 0xFF }
             );
         }
@@ -397,35 +404,111 @@ void Game::renderEditor()
     while (y <= endY);
 
     SDL_Color white = SDL_Color { 0xFF, 0xFF, 0xFF, 0xFF };
-    DRAW_TEXT_LINES(5) {
-        DRAW_TEXT_W("Selected");
-        DRAW_TEXT_W("Speed:");
-        DRAW_TEXT_W(std::to_string(this->selectedSpeed));
+    DRAW_TEXT_LINES(3, 8, 0.4f) {
+        DRAW_TEXT_W("Beat: " + formatFloat(this->beat, 3));
+        DRAW_TEXT_W("(" + std::to_string(Ball::toMinibeats(this->beat)) + " mb)");
         LEAVE_LINE();
-        DRAW_TEXT_W("Mode:");
-        DRAW_TEXT_W(getText(this->placingMode));
+        DRAW_TEXT_W("Spacing: " + formatFloat(this->beatSpacing, 2));
+        DRAW_TEXT_W("Ball Speed: " + formatFloat(this->selectedSpeed, 3));
         LEAVE_LINE();
-
+        DRAW_TEXT_W("Music: " + getMusicStatus());
+        if (this->music)
+        {
+            Sint64 audioFrames = MIX_GetAudioDuration(this->music);
+            if (audioFrames != MIX_DURATION_UNKNOWN)
+            {
+                if (audioFrames == MIX_DURATION_INFINITE)
+                {
+                    DRAW_TEXT_W("(Infinite)");
+                }
+                else
+                {
+                    // Format the frames.
+                    Sint64 millis = MIX_AudioFramesToMS(this->music, audioFrames);
+                    std::string time = formatMillis(millis);
+                    DRAW_TEXT_W("(" + time + ")");
+                }
+            }
+        }
+        LEAVE_LINE();
+        DRAW_TEXT_W("Mode: " + getText(this->placingMode));
         size_t i = 0;
         switch (this->placingMode)
         {
             case PlacingMode::BOUNCY:
                 // Show extra attributes.
-                DRAW_TEXT_W("R: " + std::to_string(this->editorBouncyRespawns));
-                DRAW_TEXT_W("[1/2]: +/- 1");
+                DRAW_TEXT_W("Respawns (R): " + std::to_string(this->editorBouncyRespawns));
                 DRAW_TEXT_W("I: " + toReadableUnits(this->editorBouncyInterval) + " (" + std::to_string(this->editorBouncyInterval) + ")");
-                DRAW_TEXT_W("[3/4]: +/- 16th");
-                DRAW_TEXT_W("[5/6]: +/- 48th");
-                DRAW_TEXT_W("[7/8]: +/- 192nd");
-                DRAW_TEXT_W("[9/0]: R=1/I=48");
+                DRAW_HELP("1/2", "+/- 1");
+                DRAW_HELP("3/4", "+/- 16th");
+                DRAW_HELP("5/6", "+/- 48th");
+                DRAW_HELP("7/8", "+/- 192nd");
+                DRAW_HELP("9/0", "R=1/I=48");
                 break;
         }
+        LEAVE_LINE();
+        DRAW_TEXT_W("Balls - " + std::to_string(this->balls.size()));
+        DRAW_TEXT_W("-------------------");
+        DRAW_TEXT_W("Normal: " + std::to_string(getBallCount<BallTypeNormal>()));
+        DRAW_TEXT_W("Mines: " + std::to_string(getBallCount<BallTypeMine>()));
+        DRAW_TEXT_W("Holds: " + std::to_string(getBallCount<BallTypeHold>()));
+        DRAW_TEXT_W("Pits: " + std::to_string(getBallCount<BallTypePit>()));
+        DRAW_TEXT_W("Bouncy: " + std::to_string(getBallCount<BallTypeBouncy>()));
+
+        LEAVE_LINE();
+        DRAW_HELP("F1", "Help");
     }
 
     this->drawEditorBalls(endY);
     this->drawDivisorArrow();
 
     this->drawSpecificEditorMenu();
+}
+
+template <typename T>
+size_t Game::getBallCount() {
+    return std::count_if(balls.begin(), balls.end(), [](auto& ball) { return std::holds_alternative<T>(ball.type); });
+}
+
+std::string Game::formatMillis(Sint64 millis)
+{
+    Sint64 centis = millis / 10;
+    Sint64 seconds = centis / 100;
+    centis -= seconds * 100;
+    Sint64 minutes = seconds / 60;
+    seconds -= minutes * 60;
+
+    std::string centisString = std::to_string(centis);
+    if (centisString.size() == 1) centisString = "0" + centisString;
+
+    std::string sString = std::to_string(seconds);
+    if (sString.size() == 1) sString = "0" + sString;
+
+    if (minutes >= 0)
+    {
+        return std::to_string(minutes) + ":" + sString + "." + centisString;
+    }
+    else
+    {
+        return sString + "." + centisString;
+    }
+}
+
+std::string Game::getMusicStatus()
+{
+    if (!this->track)
+        return "Unsupported";
+    else if (!this->music)
+        return "Unloaded";
+    else
+        return "Loaded";
+}
+
+std::string Game::formatFloat(float number, int precision)
+{
+    std::stringstream ss;
+    ss << std::fixed << std::setprecision(precision) << number;
+    return ss.str();
 }
 
 void Game::handleCustomPlacingModeKey(CustomPlacingModeKey key)
@@ -484,17 +567,20 @@ std::string Game::toReadableUnits(minibeat miniBeats)
 void Game::drawSpecificEditorMenu()
 {
     if (gameState == GameState::PLAYING || gameState == GameState::EDITING_NONE) return;
-    SDL_SetRenderDrawColor(this->renderer, 0x00u, 0x00u, 0x00u, 0x7Fu);
-    SDL_FRect rect = { 0.0f, 0.0f, SCREEN_WIDTH, SCREEN_HEIGHT };
-    SDL_RenderFillRect(this->renderer, &rect);
+    SDL_SetRenderDrawColor(this->renderer, 0x00u, 0x00u, 0x00u, 0xAFu);
+    SDL_RenderFillRect(this->renderer, NULL);
     // Middle x-position & y-position
-    float x = SCREEN_WIDTH / 2;
-    float y = SCREEN_HEIGHT / 2;
+    int width, height;
+    getRendererSize(&width, &height);
+    width /= getRenderedScale();
+    height /= getRenderedScale();
+    float x = width / 2;
+    float y = height / 2;
     switch (gameState)
     {
         case GameState::EDITING_BPM:
             drawText(
-                "Change BPM", SDL_Color {0xFFu, 0x3Fu, 0x3Fu, 0xFFu},
+                "Change BPM", WHITE,
                 x, y - 50, TextAlignment::CENTER_ALIGNED, 1.0f
             );
             drawText(
@@ -507,7 +593,40 @@ void Game::drawSpecificEditorMenu()
                 SDL_Color { 0xFFu, 0xCFu, 0xCFu, 0xCFu },
                 x, y + 50, TextAlignment::CENTER_ALIGNED, 1.5f
             );
+            break;
+
+        case GameState::EDITING_HELP:
+            drawText("HELP", WHITE, x, 24, CENTER_ALIGNED, 1.0f);
+            DRAW_TEXT_LINES(5, 50, 0.4f)
+            {
+                DRAW_TEXT_W("GAMEPLAY");
+                DRAW_HELP("ESC", "Stop Playtest");
+                LEAVE_LINE();
+                DRAW_TEXT_W("EDITOR");
+                DRAW_HELP("F1", "Open/Close Help Menu");
+                DRAW_HELP("F2", "Start Playtest from Beginning");
+                DRAW_HELP("F3", "Start Playtest from Current Beat");
+                DRAW_HELP("+", "Increase Beat Spacing");
+                DRAW_HELP("-", "Decrease Beat Spacing");
+                DRAW_HELP(".", "Increase Ball Speed (+ CTRL and/or SHIFT for lower values)");
+                DRAW_HELP(",", "Decrease Ball Speed (+ CTRL and/or SHIFT for lower values)");
+                DRAW_HELP("↑↓", "Move Current Beat (or use Mouse Scroll)");
+                DRAW_HELP("ESC", "Escape from Current Menu");
+                DRAW_HELP("L", "Load a Ballfile");
+                DRAW_HELP("S", "Save a Ballfile");
+                DRAW_HELP("M", "Loading Audio for Playtesting");
+                DRAW_HELP("P", "Cycle Placing Mode");
+                DRAW_HELP("B", "Add BPM Change");
+            }
+            break;
     }
+}
+
+void Game::drawWhiteRect(float x, float y, float w, float h)
+{
+    SDL_FRect rect {x, y, w, h};
+    SDL_SetRenderDrawColor(this->renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+    SDL_RenderFillRect(this->renderer, &rect);
 }
 
 void Game::drawEditorBalls(float endY)
@@ -598,9 +717,9 @@ void Game::drawEditorBalls(float endY)
         {
             double fromSelectedBeat = bpmChange->beat - this->beat;
             this->drawText(
-                std::to_string(bpmChange->bpm),
+                formatFloat(bpmChange->bpm, 4),
                 SDL_Color { 0xFFu, 0x7Fu, 0x7Fu, 0xFFu },
-                GAMEPLAY_WIDTH + getGameplayXoffset() + 15,
+                GAMEPLAY_WIDTH + getGameplayXoffset() + 34,
                 EDITOR_SELECTED_BEAT_Y + fromSelectedBeat * this->beatSpacing,
                 TextAlignment::LEFT_ALIGNED,
                 0.5f
@@ -934,6 +1053,7 @@ void Game::renderEditorBeatLine(size_t beat, float y)
 
 void Game::drawTextWithOutline(std::string str, SDL_Color fill, float x, float y, TextAlignment align, float size, int outline, SDL_Color outlineColor)
 {
+    size = size * UNIT_FONT_SIZE;
     SDL_Surface* fillSurface = TTF_RenderText_Blended(
         this->font,
         str.c_str(),
@@ -954,7 +1074,6 @@ void Game::drawTextWithOutline(std::string str, SDL_Color fill, float x, float y
         );
         if (outlineSurface == nullptr) return;
     }
-    
     // Convert them to textures.
     SDL_Texture* fillTexture = SDL_CreateTextureFromSurface(this->renderer, fillSurface);
     SDL_Texture* outlineTexture = nullptr;
@@ -1014,62 +1133,52 @@ void Game::drawText(std::string str, SDL_Color color, float x, float y, TextAlig
 
 void Game::drawDivisorArrow()
 {
-    SDL_Texture* texture = this->textureLibrary->divisorArrows;
+    SDL_FRect rect = {
+        GAMEPLAY_WIDTH + getGameplayXoffset() + 6,
+        EDITOR_SELECTED_BEAT_Y - SELECTOR_RECTANGLE_HEIGHT / 2,
+        SELECTOR_RECTANGLE_WIDTH,
+        SELECTOR_RECTANGLE_HEIGHT
+    };
 
-    // Draw a triangle like this:
-    //     /|
-    //    / |  1 - color of the ghost ball
-    //   /| |  2 - color of the divisor selected.
-    //  /1|2|
-    //  \ | |
-    //   \| |
-    //    \ |
-    //     \|
+    SDL_SetRenderDrawColor(this->renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+    SDL_RenderFillRect(this->renderer, &rect);
 
-    SDL_FRect srcRect =
-        this->textureLibrary->createRect(
-            DIVISOR_ARROW_WIDTH * this->selectedDivisor.getColor(),
-            0,
-            DIVISOR_ARROW_WIDTH,
-            DIVISOR_ARROW_HEIGHT
-        );
+    rect.x += SELECTOR_RECTANGLE_OUTLINE_THICKNESS;
+    rect.y += SELECTOR_RECTANGLE_OUTLINE_THICKNESS;
+    rect.w -= SELECTOR_RECTANGLE_OUTLINE_THICKNESS * 2;
+    rect.h -= SELECTOR_RECTANGLE_OUTLINE_THICKNESS * 2;
 
-    SDL_FRect destRect =
-        this->textureLibrary->createRect(
-            GAMEPLAY_WIDTH + 10 + getGameplayXoffset(),
-            EDITOR_SELECTED_BEAT_Y - (float) DIVISOR_ARROW_HEIGHT * 0.5f,
-            DIVISOR_ARROW_WIDTH,
-            DIVISOR_ARROW_HEIGHT
-        );
-
-    SDL_RenderTexture(
-        this->renderer,
-        texture,
-        &srcRect,
-        &destRect
-    );
+    SDL_Color color = this->selectedDivisor.getProtrayingColor();
+    SDL_SetRenderDrawColor(this->renderer, color.r, color.g, color.b, color.a);
+    SDL_RenderFillRect(this->renderer, &rect);
 
     minibeat miniBeats = Ball::toMinibeats(this->beat);
     ColorDivisor colorDivisor = ColorDivisor::getColorDivisor(miniBeats);
 
-    drawText(
+    color.r = color.r / 2 + 128;
+    color.g = color.g / 2 + 128;
+    color.b = color.b / 2 + 128;
+
+    drawTextWithOutline(
         std::to_string(this->selectedDivisor.getTh()).c_str(),
-        (SDL_Color) { 255, 255, 255, 255 },
-        destRect.x + destRect.w + 10,
-        destRect.y + destRect.h / 2,
-        TextAlignment::LEFT_ALIGNED,
-        0.5f
+        color,
+        rect.x + rect.w / 2,
+        rect.y + rect.h / 2,
+        TextAlignment::CENTER_ALIGNED,
+        0.5f,
+        4,
+        { 255, 255, 255, 255 }
     );
 
-    srcRect.x = DIVISOR_ARROW_WIDTH * colorDivisor.getColor();
-    srcRect.w = DIVISOR_ARROW_WIDTH / 2;
-    destRect.w = DIVISOR_ARROW_WIDTH / 2;
-
-    SDL_RenderTexture(
-        this->renderer,
-        texture,
-        &srcRect,
-        &destRect
+    drawTextWithOutline(
+        std::to_string(this->selectedDivisor.getTh()).c_str(),
+        color,
+        rect.x + rect.w / 2,
+        rect.y + rect.h / 2,
+        TextAlignment::CENTER_ALIGNED,
+        0.5f,
+        2,
+        { 0, 0, 0, 255 }
     );
 }
 
@@ -1082,7 +1191,7 @@ void Game::moveTimesDivisor(float direction)
 {
     minibeat minibeats = Ball::toMinibeats(this->beat);
     // Add/Subtract required minibeats and convert back.
-    minibeat netChange = this->selectedDivisor.getWorth();
+    minibeat netChange = this->selectedDivisor.getWorth() * std::abs(direction);
     if (direction < 0 && netChange >= minibeats)
     {
         this->beat = 0;
@@ -1308,6 +1417,19 @@ void Game::handleKeyDownEvent(SDL_Event* event)
         case SDLK_DOWN:
             moveTimesDivisor(1.0f);
             break;
+        case SDLK_PAGEUP:
+            moveTimesDivisor(-8.0f);
+            break;
+        case SDLK_PAGEDOWN:
+            moveTimesDivisor(8.0f);
+            break;
+        case SDLK_HOME:
+            this->beat = 0;
+            break;
+        case SDLK_END:
+            // Get the last ball.
+            this->beat = this->balls.empty() ? 0 : Ball::toBeats(this->balls.rbegin()->at);
+            break;
         case SDLK_EQUALS:
             // Increase spacing between two beats.
             beatSpacing += EDITOR_BEAT_SEPARATION_STEP;
@@ -1362,6 +1484,9 @@ void Game::handleKeyDownEvent(SDL_Event* event)
         case SDLK_P:
             // Cycle placing mode.
             placingMode = static_cast<PlacingMode>(static_cast<int>(placingMode) + 1);
+            // Hide square mode
+            if (placingMode == PlacingMode::SQUARE)
+                placingMode = static_cast<PlacingMode>(static_cast<int>(placingMode) + 1);
             if (placingMode == PlacingMode::INVALID)
                 placingMode = PlacingMode::BALL;
             break;
@@ -1494,6 +1619,17 @@ bool Game::handleMenuEvent(SDL_Event* event)
                         if (gameState == GameState::PLAYTESTING)
                             stopPlayTest();
                         gameState = GameState::EDITING_NONE;
+                    }
+                    break;
+                case SDLK_F1:
+                    // Open/close Help Menu.
+                    if (gameState == GameState::EDITING_HELP)
+                    {
+                        gameState = GameState::EDITING_NONE; // Menu closed.
+                    }
+                    else if (gameState == GameState::EDITING_NONE)
+                    {
+                        gameState = GameState::EDITING_HELP; // Menu open.
                     }
                     break;
                 case SDLK_F2:
@@ -1629,9 +1765,9 @@ void Game::update()
         !!(paddleKeysPressed & PaddleKeys::RIGHT) * 3.5f;
     float change = speed * PADDLE_SPEED * this->deltaTimePassed;
     paddlePosition += change;
-    if (std::abs(paddlePosition) > PADDLE_MAX_LEFT - PADDLE_WIDTH / 2)
+    if (std::abs(paddlePosition) > PADDLE_MAX_LEFT - getPaddleWidth() / 2)
     {
-        paddlePosition = (paddlePosition / std::abs(paddlePosition)) * (PADDLE_MAX_LEFT - PADDLE_WIDTH / 2);
+        paddlePosition = (paddlePosition / std::abs(paddlePosition)) * (PADDLE_MAX_LEFT - getPaddleWidth() / 2);
     }
     // Ball handling.
     if (seconds < 0 && seconds + deltaTimePassed >= 0)
@@ -1719,9 +1855,9 @@ void Game::renderFlashesAndJudgement()
 
 Judgement Game::getJudgementFromDifference(float difference)
 {
-    if (difference < PADDLE_WIDTH * 0.2)
+    if (difference < DEFAULT_PADDLE_WIDTH * 0.2)
         return Judgement::PERFECT;
-    else if (difference < PADDLE_WIDTH * 0.35)
+    else if (difference < DEFAULT_PADDLE_WIDTH * 0.35)
         return Judgement::GREAT;
     else
         return Judgement::GOOD;
@@ -1840,9 +1976,9 @@ void Game::updateBalls()
         float cr = size / 2;
 
         SDL_FRect rect = SDL_FRect {
-            paddlePosition - PADDLE_WIDTH / 2,
+            paddlePosition - getPaddleWidth() / 2,
             SCREEN_HEIGHT / 2 - PADDLE_TOP - PADDLE_HEIGHT,
-            PADDLE_WIDTH,
+            getPaddleWidth(),
             PADDLE_HEIGHT  
         };
 
@@ -1938,9 +2074,9 @@ void Game::updateBalls()
                     BALL_SIZE
                 };
                 SDL_FRect paddlePlane = SDL_FRect {
-                    paddlePosition - PADDLE_WIDTH / 2,
+                    paddlePosition - getPaddleWidth() / 2,
                     -SCREEN_HEIGHT/2,
-                    PADDLE_WIDTH,
+                    getPaddleWidth(),
                     SCREEN_HEIGHT
                 };
                 if (SDL_HasRectIntersectionFloat(&square, &paddlePlane) &&

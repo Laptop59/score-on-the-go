@@ -11,7 +11,6 @@ TextureLibrary::TextureLibrary(SDL_Renderer* renderer)
 void TextureLibrary::loadTextures()
 {
     this->loadTexture(&this->balls, "resources/balls.png");
-    this->loadTexture(&this->divisorArrows, "resources/divisor_arrows.png");
     this->loadTexture(&this->flash, "resources/flash.png");
     this->loadTexture(&this->tail, "resources/tail.png");
     this->loadTexture(&this->mines, "resources/mines.png");
@@ -22,7 +21,6 @@ TextureLibrary::~TextureLibrary()
 {
     // Unload textures.
     this->unloadTexture(&this->balls);
-    this->unloadTexture(&this->divisorArrows);
     this->unloadTexture(&this->flash);
     this->unloadTexture(&this->tail);
     this->unloadTexture(&this->mines);

@@ -46,8 +46,8 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
         return SDL_APP_FAILURE;
     }
 
-    TTF_Font* font = TTF_OpenFont(FONT_PATH, 32);
-    TTF_Font* fontOutlined = TTF_OpenFont(FONT_PATH, 32);
+    TTF_Font* font = TTF_OpenFont(FONT_PATH, 64);
+    TTF_Font* fontOutlined = TTF_OpenFont(FONT_PATH, 64);
     if (font == nullptr || fontOutlined == nullptr)
     {
         SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "Opening Game Font Error: %s", SDL_GetError());

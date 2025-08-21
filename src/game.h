@@ -60,17 +60,23 @@ const float TAIL_SIZE = 36;
 // Transparent ghost ball's alpha value `0-255`.
 const uint8_t GHOST_BALL_ALPHA = 0x7Fu;
 
-// Divisor arrow width.
-const float DIVISOR_ARROW_WIDTH = 36;
+// Width of selector rectangle (excluding outline).
+const float SELECTOR_RECTANGLE_WIDTH = 8.0f;
 
-// Divisor arrow height.
-const float DIVISOR_ARROW_HEIGHT = 40;
+// Height of selector rectangle (excluding outline).
+const float SELECTOR_RECTANGLE_HEIGHT = 32.0f;
+
+// Thickness of outline of selector rectangle.
+const float SELECTOR_RECTANGLE_OUTLINE_THICKNESS = 1.5f;
 
 // Fast ball speed (speed >= `FAST_BALL_SPEED` has a thunderbolt symbol.)
 const float FAST_BALL_SPEED = 1.5f;
 
 // Default BPM when nothing else exists.
 const double DEFAULT_BPM = 120.0;
+
+// Unit worth of a relative font size.
+const float UNIT_FONT_SIZE = 0.5f;
 
 // Number of minibeats between each long ball node. Affects gameplay.
 const minibeat LONG_BALL_NODE_SPACING = (minibeat) (MINIBEATS_PER_BEAT * 0.25);
@@ -136,7 +142,8 @@ enum GameState
     PLAYING            = 0x00,
     PLAYTESTING        = 0x01,
     EDITING_NONE       = 0x02,
-    EDITING_BPM        = 0x03
+    EDITING_BPM        = 0x03,
+    EDITING_HELP       = 0x04
 };
 
 /*
@@ -197,20 +204,39 @@ struct BallFlash
     float y;
 };
 
-#define WHITE (SDL_Color {0xFF, 0xFF, 0xFF, 0xFF})
-#define TEXT_LINE_SPACING (14)
+/*
+ * Structure used for a macro for easily drawing text lines in the renderer.
+*/
+struct DTL_State
+{
+    float x;
+    float y;
+    float fontScale;
+    bool ongoing;
+};
 
-/* Helper macro for making text for editing drawn easily. */
-#define DRAW_TEXT_LINES(xPos) for (float _DTL_x = (xPos), _DTL_y = 10, _DTL_done = 0; _DTL_done == 0; _DTL_done = INFINITY)
+#define WHITE (SDL_Color {0xFF, 0xFF, 0xFF, 0xFF})
+#define BLACK (SDL_Color {0x00, 0x00, 0x00, 0xFF})
+#define TEXT_LINE_SPACING (32)
+#define KEY_MARGIN (13)
+#define KEY_SEPARATION (18)
+#define KEY_WIDTH (24)
+#define KEY_HEIGHT (12)
+
+/** Helper macro for making text for editing drawn easily. */
+#define DRAW_TEXT_LINES(xPos, yPos, fontScale) for (DTL_State _DTL_ = {(xPos), (yPos), (fontScale), true}; _DTL_.ongoing; _DTL_.ongoing = false)
 
 /** Draw text line with a color. */
-#define DRAW_TEXT(string, color) drawText((string), (color), _DTL_x, _DTL_y, TextAlignment::LEFT_ALIGNED, 0.4f); _DTL_y += TEXT_LINE_SPACING;
+#define DRAW_TEXT(string, color) drawText((string), (color), _DTL_.x, _DTL_.y, TextAlignment::LEFT_ALIGNED, _DTL_.fontScale); _DTL_.y += _DTL_.fontScale * TEXT_LINE_SPACING
+
+/** Draw a help line using two text drawing calls. */
+#define DRAW_HELP(key, string) drawWhiteRect(_DTL_.x + KEY_MARGIN - KEY_WIDTH / 2, _DTL_.y - KEY_HEIGHT / 2, KEY_WIDTH, KEY_HEIGHT); drawText((key), BLACK, _DTL_.x + KEY_MARGIN, _DTL_.y, TextAlignment::CENTER_ALIGNED, _DTL_.fontScale); drawText((string), WHITE, _DTL_.x + KEY_MARGIN + KEY_SEPARATION, _DTL_.y, TextAlignment::LEFT_ALIGNED, _DTL_.fontScale); _DTL_.y += _DTL_.fontScale * TEXT_LINE_SPACING
 
 /** Draw text line with white color. */
-#define DRAW_TEXT_W(string) DRAW_TEXT((string), WHITE);
+#define DRAW_TEXT_W(string) DRAW_TEXT((string), WHITE)
 
 /** Leave a line in the text list. */
-#define LEAVE_LINE() _DTL_y += TEXT_LINE_SPACING;
+#define LEAVE_LINE() _DTL_.y += _DTL_.fontScale * TEXT_LINE_SPACING;
 
 /*
  * An object representing the game.
@@ -322,7 +348,16 @@ class Game
 
         // Draw editor elements.
         void renderEditor();
-    
+
+        // Format millis into a readable timer string.
+        std::string formatMillis(Sint64 millis);
+
+        // Get the current status of music (using SDL3)
+        std::string getMusicStatus();
+
+        // Formats a float with the specified precision value.
+        std::string formatFloat(float number, int precision);
+
         // Draws a beat in the editor with a specific `y` coordinate.
         void renderEditorBeatLine(size_t beat, float y);
 
@@ -340,6 +375,9 @@ class Game
 
         // Draws an additional editor menu depending on GameState.
         void drawSpecificEditorMenu();
+
+        // Draw a white rectangle with the specified parameters.
+        void drawWhiteRect(float x, float y, float w, float h);
 
         // Draw balls in the editor for editing.
         void drawEditorBalls(float endY);
@@ -483,8 +521,8 @@ class Game
         // Handles a custom placing mode key in the editor.
         void handleCustomPlacingModeKey(CustomPlacingModeKey key);
 
-        // Paddle width.
-        float PADDLE_WIDTH = 125.0f;
+        // Default paddle width.
+        float DEFAULT_PADDLE_WIDTH = 125.0f;
 
         // Maximum from left the paddle can go in either side.
         float PADDLE_MAX_LEFT = GAMEPLAY_WIDTH / 2 - 13.0f;
@@ -610,6 +648,9 @@ class Game
         // Function to render to the renderer.
         void render();
 
+        // Get current paddle width.
+        float getPaddleWidth();
+
         // Function to handle an SDL_Event.
         void handleEvent(SDL_Event* event);
 
@@ -639,6 +680,10 @@ class Game
 
         // Deconstructor for the Game object.
         ~Game();
+        
+        // Get the number of balls with a certain type.
+        template <typename T>
+        size_t getBallCount();
 };
 
 #endif

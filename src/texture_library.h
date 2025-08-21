@@ -12,9 +12,6 @@ class TextureLibrary
         // Textures of ball mines to be avoided.
         SDL_Texture* mines;
 
-        // Texture of arrows to specify the color divisor.
-        SDL_Texture* divisorArrows;
-
         // Texture of a flash.
         SDL_Texture* flash;
 
