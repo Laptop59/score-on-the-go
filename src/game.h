@@ -150,7 +150,9 @@ enum GameState
     EDITING_NONE       = 0x02,
     EDITING_BPM        = 0x03,
     EDITING_HELP       = 0x04,
-    EDITING_PW         = 0x05
+    EDITING_PW         = 0x05,
+    EDITING_PS         = 0x06,
+    EDITING_CMD        = 0x07
 };
 
 /*
@@ -243,7 +245,10 @@ struct DTL_State
 #define DRAW_TEXT_W(string) DRAW_TEXT((string), WHITE)
 
 /** Leave a line in the text list. */
-#define LEAVE_LINE() _DTL_.y += _DTL_.fontScale * TEXT_LINE_SPACING;
+#define LEAVE_LINE() LEAVE_SPACE(TEXT_LINE_SPACING)
+
+/** Leave space in the text list. */
+#define LEAVE_SPACE(space) _DTL_.y += _DTL_.fontScale * space;
 
 /*
  * An object representing the game.
@@ -269,7 +274,7 @@ class Game
         float PADDLE_HEIGHT = 22.0f;
 
         // Paddle speed (per second).
-        float PADDLE_SPEED = 4.0f * 30;
+        float DEFAULT_PADDLE_SPEED = 4.0f * 30;
 
         // Time it takes to fully complete the change of paddle width.
         double PADDLE_TRANSITION_DURATION = 1.0;
@@ -292,6 +297,9 @@ class Game
 
         // Whether 'shaded' text should be drawn.
         bool shadedTextEnabled = false;
+
+        // Whether input has been enabled in same frame.
+        bool instantaneousInput = false;
 
         // Selected ball to place.
         SelectedPlacableBall selectedToPlace = SelectedPlacableBall::NORMAL;
@@ -326,8 +334,14 @@ class Game
         // BPM changes in the song.
         std::vector<BpmChange> bpmChanges = {(BpmChange) {0.0, DEFAULT_BPM}};
 
-        // Paddle width changes in the strong.
+        // Paddle width changes in the ballfile.
         std::vector<PaddleWidthChange> paddleWidthChanges = {(PaddleWidthChange) {0.0, DEFAULT_PADDLE_WIDTH}};
+
+        // Paddle speed changes in the ballfile.
+        std::vector<PaddleSpeedChange> paddleSpeedChanges = {(PaddleSpeedChange) {0.0, DEFAULT_PADDLE_SPEED}};
+
+        // Commands in the ballfile. (In this editor, nothing happens due to commands)
+        std::vector<Command> commands = {};
 
         // Current circle speed for editing.
         float selectedSpeed = 1.0f;
@@ -470,6 +484,12 @@ class Game
         // Adds a paddle width change in their vector. DO NOT CALL THIS FUNCTION AT THE SAME TIME THE VECTOR'S ITERATORS ARE USED!
         void addPaddleWidthChange(const PaddleWidthChange &paddleWidthChange);
 
+        // Adds a paddle speed change in their vector. DO NOT CALL THIS FUNCTION AT THE SAME TIME THE VECTOR'S ITERATORS ARE USED!
+        void addPaddleSpeedChange(const PaddleSpeedChange &paddleSpeedChange);
+
+        // Adds a command in their vector. DO NOT CALL THIS FUNCTION AT THE SAME TIME THE VECTOR'S ITERATORS ARE USED!
+        void addCommand(const Command &command);
+
         // Draws balls in the editor.
         void drawEditorBalls();
 
@@ -489,16 +509,25 @@ class Game
         void handleKeyDownEvent(SDL_Event* event);
 
         // Opens the file picker for getting a ballfile.
-        void openLoadFilePicker();
+        void openLoadBallFilePicker();
+
+        // Opens the file picker for getting a file of commands.
+        void openLoadCommandsPicker();
 
         // Opens the file picker for saving a ballfile.
-        void openSaveFilePicker();
+        void openSaveBallFilePicker();
+
+        // Opens the file pciker for saving a file of commands.
+        void openSaveCommandsPicker();
 
         // Opens the file picker for loading music.
         void openLoadMusicPicker();
 
         // Returns true if no other event should be handled. Handles menu events.
         bool handleMenuEvent(SDL_Event* event);
+
+        // Get current paddle speed.
+        float getPaddleSpeed();
 
         // Checks if number input should be handled.
         InputMode inputModeEnabled();
@@ -516,10 +545,16 @@ class Game
         void moveTimesDivisor(float direction);
 
         // Callback for opening-a-file picker.
-        static void SDLCALL callbackLoadFilePicker(void* userdata, const char* const* filelist, int filter);
+        static void SDLCALL callbackLoadBallfilePicker(void* userdata, const char* const* filelist, int filter);
 
         // Callback for saving-a-file picker.
-        static void SDLCALL callbackSaveFilePicker(void* userdata, const char* const* filelist, int filter);
+        static void SDLCALL callbackSaveBallfilePicker(void* userdata, const char* const* filelist, int filter);
+
+        // Callback for saving commands.
+        static void SDLCALL callbackSaveCommandsPicker(void *userdata, const char *const *filelist, int filter);
+
+        // Callback for loading commands.
+        static void SDLCALL callbackLoadCommandsPicker(void *userdata, const char *const *filelist, int filter);
 
         // Callback for opening-music picker.
         static void SDLCALL callbackLoadMusicPicker(void* userdata, const char* const* filelist, int filter);

@@ -165,6 +165,10 @@ void Game::renderPlaytest()
 
         LEAVE_LINE();
 
+        DRAW_TEXT_W("Paddle Speed: " + formatFloat(getPaddleSpeed(), 1));
+
+        LEAVE_LINE();
+
         DRAW_HELP("ESC", "Stop Playtest");
     }
 
@@ -680,14 +684,53 @@ void Game::drawSpecificEditorMenu()
             );
             break;
 
+        case GameState::EDITING_PS:
+            drawText(
+                "Change Paddle Speed", WHITE,
+                x, y - 50, TextAlignment::CENTER_ALIGNED, 1.0f
+            );
+            drawText(
+                "at beat " + std::to_string(beat) + " to:",
+                SDL_Color {0xAFu, 0xAFu, 0xFFu, 0xFFu},
+                x, y, TextAlignment::CENTER_ALIGNED, 0.75f
+            );
+            drawText(
+                getDisplayedInputText(),
+                SDL_Color { 0x5Fu, 0x5Fu, 0xDFu, 0xFFu },
+                x, y + 50, TextAlignment::CENTER_ALIGNED, 1.5f
+            );
+            break;
+
+        case GameState::EDITING_CMD:
+            drawText(
+                "Change Command", WHITE,
+                x, y - 50, TextAlignment::CENTER_ALIGNED, 1.0f
+            );
+            drawText(
+                "at beat " + std::to_string(beat) + " to:",
+                SDL_Color {0xAFu, 0xFFu, 0xAFu, 0xFFu},
+                x, y, TextAlignment::CENTER_ALIGNED, 0.75f
+            );
+            drawText(
+                getDisplayedInputText(),
+                SDL_Color { 0x6Fu, 0xDFu, 0x6Fu, 0xFFu },
+                x, y + 50, TextAlignment::CENTER_ALIGNED, 0.75f
+            );
+            drawText(
+                "Note: To specify multiple actions, separate by a comma like action1,action2,action3.",
+                SDL_Color {0xAFu, 0xFFu, 0xAFu, 0xFFu},
+                x, y + 100, TextAlignment::CENTER_ALIGNED, 0.5f
+            );
+            break;
+
         case GameState::EDITING_HELP:
-            drawTextWithOutline("HELP", WHITE, x, 24, CENTER_ALIGNED, 0.5f, 1, WHITE);
+            drawTextWithOutline("HELP", WHITE, x, 10, CENTER_ALIGNED, 0.5f, 1, WHITE);
             shadedTextEnabled = true;
-            DRAW_TEXT_LINES(5, 55, 0.42f)
+            DRAW_TEXT_LINES(5, 22, 0.39f)
             {
                 DRAW_TEXT_W("GAMEPLAY");
                 DRAW_HELP("ESC", "Stop Playtest");
-                LEAVE_LINE();
+                LEAVE_SPACE(6);
                 DRAW_TEXT_W("EDITOR");
                 DRAW_HELP("F1", "Open/Close Help Menu");
                 DRAW_HELP("F2", "Start Playtest from Beginning");
@@ -696,7 +739,8 @@ void Game::drawSpecificEditorMenu()
                 DRAW_HELP("-", "Decrease Beat Spacing");
                 DRAW_HELP(".", "Increase Ball Speed (+ CTRL and/or SHIFT for lower values) (+ ALT for global)");
                 DRAW_HELP(",", "Decrease Ball Speed (+ CTRL and/or SHIFT for lower values) (+ ALT for global)");
-                DRAW_HELP("↑↓", "Move Current Beat (or use Mouse Scroll) (↑↓ + ALT to change lines offset by little)");
+                DRAW_HELP("↑/↓", "Move Current Beat (or use Mouse Scroll) (↑/↓ + ALT to change lines offset by little)");
+                DRAW_HELP("←/→", "Change division (quantization)");
                 DRAW_HELP("PgUp", "Move 8 divisions up (+ ALT to change lines offset greatly)");
                 DRAW_HELP("PgDn", "Move 8 divisions down (+ ALT to change lines offset greatly)");
                 DRAW_HELP("Home", "Move to beat 0");
@@ -705,10 +749,13 @@ void Game::drawSpecificEditorMenu()
                 DRAW_HELP("L", "Load a Ballfile");
                 DRAW_HELP("S", "Save a Ballfile");
                 DRAW_HELP("M", "Load Audio for Playtesting");
-                DRAW_HELP("E", "Cycle Placing Mode");
+                DRAW_HELP("P", "Cycle Placing Mode");
                 DRAW_HELP("B", "Add BPM Change");
-                DRAW_HELP("P", "Add Paddle Width Change");
+                DRAW_HELP("W", "Add Paddle Width Change");
                 DRAW_HELP("R", "Reset Preferences to Defaults");
+                DRAW_HELP("D", "Add Paddle Speed Change");
+                DRAW_HELP("C", "Add Command");
+                DRAW_HELP("I/O", "Load/Save Commands");
             }
             shadedTextEnabled = false;
             break;
@@ -746,6 +793,108 @@ void Game::drawEditorBalls(float endY)
     minibeat minibeatsMax = Ball::toMinibeats(max);      // Maximum minibeats for ball to be drawn.
     minibeat minibeatsCurrent = Ball::toMinibeats(beat); // Current minibeats.
 
+    // Now draw lines.
+    for (Ball& ball : this->balls)
+    {
+        std::vector<BallTypeTailPoint>* points = Serializer::getPointsFromType(ball.type);
+        if (points != nullptr)
+        {
+            float x1 = ball.x, x2;
+            minibeat y1 = ball.at, y2;
+            for (auto point = points->begin(); point != points->end(); ++point)
+            {
+                x2 = point->x;
+                y2 = ball.at + point->minibeats;
+                {
+                    // Draw points.
+                    float p1 = x1 + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2;
+                    float p2 = getEditorSelectedBeatY() + (Ball::toBeats(y1) - this->beat) * beatSpacing;
+                    float p3 = x2 + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2;
+                    float p4 = getEditorSelectedBeatY() + (Ball::toBeats(y2) - this->beat) * beatSpacing;
+                    SDL_SetRenderDrawColor(this->renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+                    SDL_RenderLine(this->renderer, p1, p2, p3, p4);
+                }
+                x1 = x2;
+                y1 = y2;
+            }
+        }
+    }
+
+    // Draw BPM changes too.
+    for (BpmChange& bpmChange : this->bpmChanges)
+    {
+        if (bpmChange.beat >= min && bpmChange.beat <= max)
+        {
+            double fromSelectedBeat = bpmChange.beat - this->beat;
+            this->drawText(
+                formatFloat(bpmChange.bpm, 4),
+                SDL_Color { 0xFFu, 0x7Fu, 0x7Fu, 0xFFu },
+                GAMEPLAY_WIDTH + getGameplayXoffset() + 42,
+                getEditorSelectedBeatY() + fromSelectedBeat * this->beatSpacing,
+                TextAlignment::LEFT_ALIGNED,
+                0.5f
+            );
+        }
+    }
+
+    // Draw PW changes too.
+    for (PaddleWidthChange& paddleWidthChange : this->paddleWidthChanges)
+    {
+        if (paddleWidthChange.beat >= min && paddleWidthChange.beat <= max)
+        {
+            double fromSelectedBeat = paddleWidthChange.beat - this->beat;
+            this->drawText(
+                formatFloat(paddleWidthChange.width, 0),
+                SDL_Color { 0xAFu, 0xAFu, 0xBFu, 0xFFu },
+                GAMEPLAY_WIDTH + getGameplayXoffset() + 14,
+                getEditorSelectedBeatY() + fromSelectedBeat * this->beatSpacing,
+                TextAlignment::LEFT_ALIGNED,
+                0.5f
+            );
+        }
+    }
+
+    // Draw PS changes too.
+    for (PaddleSpeedChange& paddleSpeedChange : this->paddleSpeedChanges)
+    {
+        if (paddleSpeedChange.beat >= min && paddleSpeedChange.beat <= max)
+        {
+            double fromSelectedBeat = paddleSpeedChange.beat - this->beat;
+            this->drawText(
+                formatFloat(paddleSpeedChange.speed, 0),
+                SDL_Color { 0x5Fu, 0x5Fu, 0xFFu, 0xFFu },
+                GAMEPLAY_WIDTH + getGameplayXoffset() + 14,
+                getEditorSelectedBeatY() + fromSelectedBeat * this->beatSpacing,
+                TextAlignment::LEFT_ALIGNED,
+                0.5f
+            );
+        }
+    }
+
+    // Draw commands too.
+    for (Command& command : this->commands)
+    {
+        if (command.beat >= min && command.beat <= max)
+        {
+            double fromSelectedBeat = command.beat - this->beat;
+            this->drawText(
+                command.action,
+                SDL_Color { 0x5Fu, 0xFFu, 0x5Fu, 0xFFu },
+                GAMEPLAY_WIDTH + getGameplayXoffset() - 1,
+                getEditorSelectedBeatY() + fromSelectedBeat * this->beatSpacing + 8,
+                TextAlignment::RIGHT_ALIGNED,
+                0.375f
+            );
+            float y = getEditorSelectedBeatY() + this->beatSpacing * fromSelectedBeat;
+            SDL_SetRenderDrawColor(this->renderer, 0x3F, 0xFF, 0x3F, 0xFF);
+            SDL_RenderLine(
+                this->renderer,
+                getGameplayXoffset(), y,
+                GAMEPLAY_WIDTH + getGameplayXoffset(), y
+            );
+        }
+    }
+
     // `0`: Ghost ball will not be drawn before a higher beat ball.
     // `1`: Ghost ball will be drawn before a higher beat ball.
     // `2`: Ghost ball is already drawn.
@@ -776,81 +925,38 @@ void Game::drawEditorBalls(float endY)
         }
     }
 
-    // Now draw lines.
-    for (auto ball = this->balls.begin(); ball != this->balls.end(); ++ball)
-    {
-        std::vector<BallTypeTailPoint>* points = Serializer::getPointsFromType(ball->type);
-        if (points != nullptr)
-        {
-            float x1 = ball->x, x2;
-            minibeat y1 = ball->at, y2;
-            for (auto point = points->begin(); point != points->end(); ++point)
-            {
-                x2 = point->x;
-                y2 = ball->at + point->minibeats;
-                {
-                    // Draw points.
-                    float p1 = x1 + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2;
-                    float p2 = getEditorSelectedBeatY() + (Ball::toBeats(y1) - this->beat) * beatSpacing;
-                    float p3 = x2 + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2;
-                    float p4 = getEditorSelectedBeatY() + (Ball::toBeats(y2) - this->beat) * beatSpacing;
-                    SDL_SetRenderDrawColor(this->renderer, 0xFF, 0xFF, 0xFF, 0xFF);
-                    SDL_RenderLine(this->renderer, p1, p2, p3, p4);
-                }
-                x1 = x2;
-                y1 = y2;
-            }
-        }
-    }
-
-    // Draw BPM changes too.
-    for (auto bpmChange = this->bpmChanges.begin(); bpmChange < this->bpmChanges.end(); ++bpmChange)
-    {
-        if (bpmChange->beat >= min && bpmChange->beat <= max)
-        {
-            double fromSelectedBeat = bpmChange->beat - this->beat;
-            this->drawText(
-                formatFloat(bpmChange->bpm, 4),
-                SDL_Color { 0xFFu, 0x7Fu, 0x7Fu, 0xFFu },
-                GAMEPLAY_WIDTH + getGameplayXoffset() + 42,
-                getEditorSelectedBeatY() + fromSelectedBeat * this->beatSpacing,
-                TextAlignment::LEFT_ALIGNED,
-                0.5f
-            );
-        }
-    }
-
-    // Draw PW changes too.
-    for (auto paddleWidthChange = this->paddleWidthChanges.begin(); paddleWidthChange < this->paddleWidthChanges.end(); ++paddleWidthChange)
-    {
-        if (paddleWidthChange->beat >= min && paddleWidthChange->beat <= max)
-        {
-            double fromSelectedBeat = paddleWidthChange->beat - this->beat;
-            this->drawText(
-                formatFloat(paddleWidthChange->width, 0),
-                SDL_Color { 0xAFu, 0xAFu, 0xBFu, 0xFFu },
-                GAMEPLAY_WIDTH + getGameplayXoffset() + 14,
-                getEditorSelectedBeatY() + fromSelectedBeat * this->beatSpacing,
-                TextAlignment::LEFT_ALIGNED,
-                0.5f
-            );
-        }
-    }
-
     if (ghostBallStage < 2)
         this->drawGhostBall(); // Draw it if it hasn't been drawn already.
 }
 
-void Game::openLoadFilePicker()
+void Game::openLoadBallFilePicker()
 {
     // Pass the game object to userdata for later.
     this->filePickerOpen = true;
     SDL_ShowOpenFileDialog(
-        &callbackLoadFilePicker,
+        &callbackLoadBallfilePicker,
         this,
         this->window,
         this->fileFilter,
         2,
+        NULL,
+        false
+    );
+}
+
+void Game::openLoadCommandsPicker()
+{
+    // Pass the game object to userdata for later.
+    this->filePickerOpen = true;
+    const SDL_DialogFileFilter filters[] = {
+        { "Background Commands", "bgc" },
+    };
+    SDL_ShowOpenFileDialog(
+        &callbackLoadCommandsPicker,
+        this,
+        this->window,
+        (SDL_DialogFileFilter*) filters,
+        1,
         NULL,
         false
     );
@@ -864,24 +970,23 @@ void Game::openLoadMusicPicker()
         { "Audio files", "mp3;ogg" },
         { "All files", "*" }
     };
-    SDL_DialogFileFilter* pointerToFilters = (SDL_DialogFileFilter*) musicFilters;
     SDL_ShowOpenFileDialog(
         &callbackLoadMusicPicker,
         this,
         this->window,
-        pointerToFilters,
+        (SDL_DialogFileFilter*) musicFilters,
         2,
         NULL,
         false
     );
 }
 
-void Game::openSaveFilePicker()
+void Game::openSaveBallFilePicker()
 {
     // Pass the game object to userdata for later.
     this->filePickerOpen = true;
     SDL_ShowSaveFileDialog(
-        &callbackSaveFilePicker,
+        &callbackSaveBallfilePicker,
         this,
         this->window,
         this->fileFilter,
@@ -890,7 +995,24 @@ void Game::openSaveFilePicker()
     );
 }
 
-void SDLCALL Game::callbackSaveFilePicker(void* userdata, const char* const* filelist, int filter)
+void Game::openSaveCommandsPicker()
+{
+    // Pass the game object to userdata for later.
+    this->filePickerOpen = true;
+    const SDL_DialogFileFilter filters[] = {
+        { "Background Commands", "bgc" },
+    };
+    SDL_ShowSaveFileDialog(
+        &callbackSaveCommandsPicker,
+        this,
+        this->window,
+        (SDL_DialogFileFilter*) filters,
+        1,
+        NULL
+    );
+}
+
+void SDLCALL Game::callbackSaveBallfilePicker(void* userdata, const char* const* filelist, int filter)
 {
     // Userdata is our game object.
     Game* game = (Game*) userdata;
@@ -908,7 +1030,8 @@ void SDLCALL Game::callbackSaveFilePicker(void* userdata, const char* const* fil
         std::string text = game->serializer->saveBallfile(
             game->balls,
             game->bpmChanges,
-            game->paddleWidthChanges
+            game->paddleWidthChanges,
+            game->paddleSpeedChanges
         );
 
         // Attempt to save file.
@@ -916,7 +1039,7 @@ void SDLCALL Game::callbackSaveFilePicker(void* userdata, const char* const* fil
         {
             SDL_ShowSimpleMessageBox(
                 SDL_MESSAGEBOX_INFORMATION,
-                "Score on the Go",
+                NAME,
                 "Successfully saved ballfile.",
                 game->window
             );
@@ -926,10 +1049,108 @@ void SDLCALL Game::callbackSaveFilePicker(void* userdata, const char* const* fil
             std::string errorMessage = std::string("Could not save ballfile: \n") + SDL_GetError();
             SDL_ShowSimpleMessageBox(
                 SDL_MESSAGEBOX_ERROR,
-                "Score on the Go",
+                NAME,
                 errorMessage.c_str(),
                 game->window
             );
+        }
+    }
+}
+
+void SDLCALL Game::callbackSaveCommandsPicker(void* userdata, const char* const* filelist, int filter)
+{
+    // Userdata is our game object.
+    Game* game = (Game*) userdata;
+    game->filePickerOpen = false;
+    if (!filelist)
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Save File Picker: %s", SDL_GetError());
+    }
+    else if (*filelist)
+    {
+        // Get the first item (we don't care about the other ones)
+        const char* file = *filelist;
+
+        // Create necessary data for saving to the file.
+        std::string text = game->serializer->writeCommands(
+            game->commands
+        );
+
+        // Attempt to save file.
+        if (SDL_SaveFile(file, text.c_str(), text.length()))
+        {
+            SDL_ShowSimpleMessageBox(
+                SDL_MESSAGEBOX_INFORMATION,
+                NAME,
+                "Successfully saved commands.",
+                game->window
+            );
+        }
+        else
+        {
+            std::string errorMessage = std::string("Could not save commands: \n") + SDL_GetError();
+            SDL_ShowSimpleMessageBox(
+                SDL_MESSAGEBOX_ERROR,
+                NAME,
+                errorMessage.c_str(),
+                game->window
+            );
+        }
+    }
+}
+
+void SDLCALL Game::callbackLoadCommandsPicker(void* userdata, const char* const* filelist, int filter)
+{
+    // Userdata is our game object.
+    Game* game = (Game*) userdata;
+    game->filePickerOpen = false;
+    if (!filelist)
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Load File Picker: %s", SDL_GetError());
+    }
+    else if (*filelist)
+    {
+        // Get the first item (we don't care about the other ones)
+        const char* file = *filelist;
+
+        // Read from the file.
+        size_t sizeInBytes;
+        void* contents = SDL_LoadFile(file, &sizeInBytes);
+
+        if (contents)
+        {
+            char* text = (char *) contents;
+            std::vector<Command> result = game->serializer->readCommands(text, sizeInBytes);
+
+            if (result.empty())
+            {
+                SDL_ShowSimpleMessageBox(
+                    SDL_MESSAGEBOX_ERROR,
+                    NAME,
+                    "No commands could be loaded from the file - no change has been done to your existing commands.",
+                    game->window
+                );
+            }
+            else
+            {
+                game->commands.clear();
+
+                for (Command& command : result)
+                    game->commands.push_back(command);
+
+                SDL_ShowSimpleMessageBox(
+                    SDL_MESSAGEBOX_ERROR,
+                    NAME,
+                    (std::string("Successfully loaded ") + std::to_string(result.size()) + "commands.").c_str(),
+                    game->window
+                );
+            }
+            
+            SDL_free(contents);
+        }
+        else
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_ERROR, "SDL Error Loading File: %s", SDL_GetError());
         }
     }
 }
@@ -966,7 +1187,7 @@ void SDLCALL Game::callbackLoadMusicPicker(void* userdata, const char* const* fi
     }
 }
 
-void SDLCALL Game::callbackLoadFilePicker(void* userdata, const char* const* filelist, int filter)
+void SDLCALL Game::callbackLoadBallfilePicker(void* userdata, const char* const* filelist, int filter)
 {
     // Userdata is our game object.
     Game* game = (Game*) userdata;
@@ -992,21 +1213,31 @@ void SDLCALL Game::callbackLoadFilePicker(void* userdata, const char* const* fil
             if (std::holds_alternative<SerializerSuccess>(result))
             {
                 SerializerSuccess success = std::get<SerializerSuccess>(result);
+
                 game->balls.clear();
                 for (auto ball = success.balls.begin(); ball < success.balls.end(); ++ball)
                     game->addBall(*ball);
+
                 game->bpmChanges.clear();
                 for (const auto& bpmChange : success.bpmChanges)
                     game->addBpmChange(bpmChange);
+
                 game->paddleWidthChanges.clear();
                 for (const auto& paddleWidthChange : success.paddleWidthChanges)
                     game->addPaddleWidthChange(paddleWidthChange);
+
+                game->paddleSpeedChanges.clear();
+                for (const auto& paddleSpeedChange : success.paddleSpeedChanges)
+                    game->addPaddleSpeedChange(paddleSpeedChange);
+
+                game->commands.clear();
+
                 std::string successMessage = std::string("Successfully loaded a ball file with ");
                 successMessage += std::to_string(success.balls.size());
                 successMessage += " balls.";
                 SDL_ShowSimpleMessageBox(
                     SDL_MESSAGEBOX_INFORMATION,
-                    "Score on the Go",
+                    NAME,
                     successMessage.c_str(),
                     game->window
                 );
@@ -1025,7 +1256,7 @@ void SDLCALL Game::callbackLoadFilePicker(void* userdata, const char* const* fil
 
                 SDL_ShowSimpleMessageBox(
                     SDL_MESSAGEBOX_ERROR,
-                    "Score on the Go",
+                    NAME,
                     failMessage.c_str(),
                     game->window
                 );
@@ -1387,7 +1618,7 @@ void Game::moveTimesDivisor(float direction)
 
 void Game::handleMouseWheelEvent(SDL_Event* event)
 {
-    movesTimesDivisorWithEvent(-event->wheel.y, event);
+    movesTimesDivisorWithEvent(-event->wheel.integer_y, event);
 }
 
 void Game::handleMouseButtonUpEvent(SDL_Event* event)
@@ -1600,7 +1831,14 @@ void Game::handleKeyDownEvent(SDL_Event* event)
             // Open file picker.
             if (!filePickerOpen)
             {
-                openLoadFilePicker();
+                openLoadBallFilePicker();
+            }
+            break;
+        case SDLK_I:
+            // Open file picker.
+            if (!filePickerOpen)
+            {
+                openLoadCommandsPicker();
             }
             break;
         case SDLK_M:
@@ -1614,7 +1852,14 @@ void Game::handleKeyDownEvent(SDL_Event* event)
             // Save file picker.
             if (!filePickerOpen)
             {
-                openSaveFilePicker();
+                openSaveBallFilePicker();
+            }
+            break;
+        case SDLK_O:
+            // Save file picker.
+            if (!filePickerOpen)
+            {
+                openSaveCommandsPicker();
             }
             break;
         case SDLK_R:
@@ -1627,7 +1872,7 @@ void Game::handleKeyDownEvent(SDL_Event* event)
         case SDLK_RCTRL:
             shouldClonePoint = true;
             break;
-        case SDLK_E:
+        case SDLK_P:
             // Cycle placing mode.
             placingMode = static_cast<PlacingMode>(static_cast<int>(placingMode) + 1);
             // Hide square mode
@@ -1807,7 +2052,7 @@ bool Game::handleMenuEvent(SDL_Event* event)
                         gameState = GameState::EDITING_BPM; // BPM menu open.
                     }
                     break;
-                case SDLK_P:
+                case SDLK_W:
                     // Open/close Paddle Width changer.
                     if (gameState == GameState::EDITING_PW)
                     {
@@ -1817,6 +2062,35 @@ bool Game::handleMenuEvent(SDL_Event* event)
                     {
                         resetInput();
                         gameState = GameState::EDITING_PW; // menu open.
+                    }
+                    break;
+                case SDLK_D:
+                    // Open/close Paddle Speed changer.
+                    if (gameState == GameState::EDITING_PS)
+                    {
+                        gameState = GameState::EDITING_NONE; // menu closed.
+                    }
+                    else if (gameState == GameState::EDITING_NONE)
+                    {
+                        resetInput();
+                        gameState = GameState::EDITING_PS; // menu open.
+                    }
+                    break;
+                case SDLK_C:
+                    // Open/close Command changer.
+                    if (gameState == GameState::EDITING_NONE)
+                    {
+                        resetInput();
+                        for (Command& command : this->commands)
+                        {
+                            if (command.beat == beat)
+                            {
+                                this->inputText = command.action;
+                                this->inputCursor = inputText.size();
+                                break;
+                            }
+                        }
+                        gameState = GameState::EDITING_CMD; // menu open.
                     }
                     break;
                 case SDLK_RETURN:
@@ -1833,7 +2107,8 @@ bool Game::handleMenuEvent(SDL_Event* event)
                                 bpm
                             });
                         }
-                    } else if (gameState == GameState::EDITING_PW)
+                    }
+                    else if (gameState == GameState::EDITING_PW)
                     {
                         double width;
                         gameState = GameState::EDITING_NONE;
@@ -1846,12 +2121,39 @@ bool Game::handleMenuEvent(SDL_Event* event)
                             });
                         }
                     }
+                    else if (gameState == GameState::EDITING_PS)
+                    {
+                        double speed;
+                        gameState = GameState::EDITING_NONE;
+                        if (Serializer::checkIsDouble(inputText, speed))
+                        {
+                            // Add PS at location.
+                            addPaddleSpeedChange((PaddleSpeedChange) {
+                                this->beat,
+                                (float) speed
+                            });
+                        }
+                    }
+                    else if (gameState == GameState::EDITING_CMD)
+                    {
+                        gameState = GameState::EDITING_NONE;
+                        {
+                            // Add CMD at location.
+                            addCommand((Command) {
+                                this->beat,
+                                this->inputText
+                            });
+                        }
+                    }
                     break;
             }
     }
     // Handle number input.
-    if (event->type == SDL_EVENT_KEY_DOWN)
-        if (inputModeEnabled() == InputMode::NUMERIC)
+    if (event->type == SDL_EVENT_KEY_DOWN && !instantaneousInput)
+    {
+        bool shift = (event->key.mod & SDL_KMOD_SHIFT) ? true : false;
+
+        if (inputModeEnabled() == InputMode::NUMERIC || inputModeEnabled() == InputMode::TEXT)
         {
             SDL_Keycode key = event->key.key;
             char n = '\0';
@@ -1861,7 +2163,7 @@ bool Game::handleMenuEvent(SDL_Event* event)
                 n = '0';
             else if (key >= SDLK_KP_1 && key <= SDLK_KP_9)
                 n = (char) (key - SDLK_KP_1) + '1';
-            else if (key == SDLK_PERIOD || key == SDLK_KP_PERIOD)
+            else if (!shift && (key == SDLK_PERIOD || key == SDLK_KP_PERIOD))
             {
                 n = '.';
             }
@@ -1873,7 +2175,7 @@ bool Game::handleMenuEvent(SDL_Event* event)
             {
                 inputCursor++;
             }
-            else if (key == SDLK_BACKSPACE && inputCursor > 0)
+            else if ((key == SDLK_BACKSPACE || key == SDLK_KP_BACKSPACE) && inputCursor > 0)
             {
                 inputText.erase(inputCursor - 1, 1u);
                 inputCursor--;
@@ -1882,13 +2184,60 @@ bool Game::handleMenuEvent(SDL_Event* event)
             {
                 inputText.erase(inputCursor, 1u);
             }
+
+            if (n >= '0' && n <= '9' && shift)
+            {
+                if (inputModeEnabled() == InputMode::TEXT)
+                {
+                    const char shiftedNums[] = {')', '!', '@', '#', '$', '%', '^', '&', '*', '('};
+                    n = shiftedNums[n - '0'];
+                }
+                else
+                    n = '\0';
+            }
+
             if (n)
             {
                 inputText.insert(inputCursor, 1u, n);
                 inputCursor++;
             }
         }
-        else if (gameState == GameState::EDITING_NONE)
+        if (inputModeEnabled() == InputMode::TEXT)
+        {
+            // Accept letters
+            SDL_Keycode key = event->key.key;
+            char n = '\0';
+            if (key >= SDLK_A && key <= SDLK_Z)
+            {
+                bool isUppercase = false;
+                if (event->key.mod & SDL_KMOD_CAPS) isUppercase = !isUppercase;
+                if (shift) isUppercase = !isUppercase;
+                char start = isUppercase ? 'A' : 'a';
+                n = (char) (key - SDLK_A) + start;
+            }
+            else if (key == SDLK_SPACE || key == SDLK_KP_SPACE)
+            {
+                n = ' ';
+            }
+            else if (key == SDLK_MINUS)
+            {
+                n = shift ? '_' : '-';
+            }
+            else if (key == SDLK_SEMICOLON)
+            {
+                n = shift ? ':' : ';'; 
+            }
+            else if (!shift && (key == SDLK_COMMA || key == SDLK_KP_COMMA))
+            {
+                n = ',';
+            }
+            if (n)
+            {
+                inputText.insert(inputCursor, 1u, n);
+                inputCursor++;
+            }
+        }
+        if (gameState == GameState::EDITING_NONE)
         {
             SDL_Keycode key = event->key.key;
             if (key >= SDLK_0 && key <= SDLK_9)
@@ -1897,6 +2246,8 @@ bool Game::handleMenuEvent(SDL_Event* event)
                 handleCustomPlacingModeKey(cpmk);
             }
         }
+    }
+    this->instantaneousInput = false;
     // Handle player input here.
     if ((gameState == GameState::PLAYING || gameState == GameState::PLAYTESTING) &&
         !event->key.repeat)
@@ -1930,13 +2281,33 @@ bool Game::handleMenuEvent(SDL_Event* event)
     return this->gameState != GameState::EDITING_NONE;
 }
 
+float Game::getPaddleSpeed()
+{
+    if (paddleWidthChanges.empty()) {
+        return DEFAULT_PADDLE_SPEED;
+    }
+
+    auto it = std::upper_bound(
+        paddleSpeedChanges.begin(), paddleSpeedChanges.end(), beat,
+        [](double value, const PaddleSpeedChange& c){
+            return value < c.beat;
+        }
+    ); // first iterator >= beat
+
+    if (it == paddleSpeedChanges.begin()) return it->speed;
+    it--; // last iterator < beat;
+    return it->speed;
+}
+
 void Game::update()
 {
     if (gameState != GameState::PLAYING && gameState != GameState::PLAYTESTING) return;
     float speed =
         !!(paddleKeysPressed & PaddleKeys::LEFT) * -3.5f +
+        !!(paddleKeysPressed & PaddleKeys::HIT1) * -1.0f +
+        !!(paddleKeysPressed & PaddleKeys::HIT2) * 1.0f +
         !!(paddleKeysPressed & PaddleKeys::RIGHT) * 3.5f;
-    float change = speed * PADDLE_SPEED * this->deltaTimePassed;
+    float change = speed * getPaddleSpeed() * this->deltaTimePassed;
     paddlePosition += change;
     if (std::abs(paddlePosition) > PADDLE_MAX_LEFT - getPaddleWidth() / 2)
     {
@@ -2295,11 +2666,13 @@ void Game::resetInput()
 {
     this->inputText = "";
     this->inputCursor = 0;
+    this->instantaneousInput = true;
 }
 
 InputMode Game::inputModeEnabled()
 {
-    if (gameState == GameState::EDITING_BPM || gameState == GameState::EDITING_PW) return InputMode::NUMERIC;
+    if (gameState == GameState::EDITING_BPM || gameState == GameState::EDITING_PW || gameState == GameState::EDITING_PS) return InputMode::NUMERIC;
+    if (gameState == GameState::EDITING_CMD) return InputMode::TEXT;
     return InputMode::NONE;
 }
 
@@ -2449,14 +2822,14 @@ void Game::addPaddleWidthChange(const PaddleWidthChange& paddleWidthChange)
         );
     }
     // Remove unnecessary changes.
-    double lastBpm = NAN;
+    double lastWidth = NAN;
     for (auto paddleWidthChange = paddleWidthChanges.begin(); paddleWidthChange < paddleWidthChanges.end();)
     {
-        if (paddleWidthChange->width == lastBpm)
+        if (paddleWidthChange->width == lastWidth)
             paddleWidthChange = paddleWidthChanges.erase(paddleWidthChange);
         else
         {
-            lastBpm = paddleWidthChange->width;
+            lastWidth = paddleWidthChange->width;
             ++paddleWidthChange;
         }
     }
@@ -2465,6 +2838,88 @@ void Game::addPaddleWidthChange(const PaddleWidthChange& paddleWidthChange)
             0.0,
             DEFAULT_BPM
         });
+}
+
+void Game::addPaddleSpeedChange(const PaddleSpeedChange& paddleSpeedChange)
+{
+    // We want to find the position where the change can be added such
+    // that the changes are in ascending order depending on their beat.
+    bool isPut = false;
+    for (auto bc = paddleSpeedChanges.begin(); bc < paddleSpeedChanges.end(); ++bc)
+    {
+        if (bc->beat == paddleSpeedChange.beat)
+        {
+            *bc = paddleSpeedChange;
+            isPut = true;
+            break;
+        }
+    }
+    if (!isPut)
+    {
+        this->paddleSpeedChanges.insert(
+            std::lower_bound(paddleSpeedChanges.begin(), paddleSpeedChanges.end(), paddleSpeedChange),
+            paddleSpeedChange
+        );
+    }
+    // Remove unnecessary changes.
+    double lastSpeed = NAN;
+    for (auto change = paddleSpeedChanges.begin(); change < paddleSpeedChanges.end();)
+    {
+        if (change->speed == lastSpeed)
+            change = paddleSpeedChanges.erase(change);
+        else
+        {
+            lastSpeed = change->speed;
+            ++change;
+        }
+    }
+    if (paddleSpeedChanges.empty())
+        paddleSpeedChanges.push_back((PaddleSpeedChange) {
+            0.0,
+            DEFAULT_BPM
+        });
+}
+
+void Game::addCommand(const Command& command)
+{
+    // We want to find the position where the change can be added such
+    // that the changes are in ascending order depending on their beat.
+    bool isPut = false;
+    for (auto bc = commands.begin(); bc < commands.end(); ++bc)
+    {
+        if (bc->beat == command.beat)
+        {
+            *bc = command;
+            isPut = true;
+            break;
+        }
+    }
+    if (!isPut)
+    {
+        this->commands.insert(
+            std::lower_bound(commands.begin(), commands.end(), command),
+            command
+        );
+    }
+    // Remove unnecessary changes.
+    std::string lastAction = "";
+    for (auto cmd = commands.begin(); cmd < commands.end();)
+    {
+        if (cmd->action == lastAction)
+            cmd = commands.erase(cmd);
+        else
+        {
+            lastAction = cmd->action;
+            ++cmd;
+        }
+    }
+    for (auto cmd = commands.begin(); cmd < commands.end();)
+    {
+        if (cmd->action.empty())
+            cmd = commands.erase(cmd);
+        else
+            ++cmd;
+    }
 }
 
 void Game::warpBeatToDivisor()

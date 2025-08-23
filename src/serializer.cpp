@@ -2,6 +2,11 @@
 #include <variant>
 #include <cmath>
 
+#include <iostream>
+#include <string>
+#include <vector>
+#include <sstream>
+
 Serializer::Serializer()
 {
     this->line   = 0;
@@ -28,12 +33,14 @@ std::vector<BallTypeTailPoint>* Serializer::getPointsFromType(BallType& type)
 std::string Serializer::saveBallfile(
     std::vector<Ball>& balls,
     std::vector<BpmChange>& bpmChanges,
-    std::vector<PaddleWidthChange>& paddleWidthChanges
+    std::vector<PaddleWidthChange>& paddleWidthChanges,
+    std::vector<PaddleSpeedChange>& paddleSpeedChanges
 )
 {
     auto ballIter = balls.begin();
     auto bpmChangesIter = bpmChanges.begin();
     auto paddleWidthChangesIter = paddleWidthChanges.begin();
+    auto paddleSpeedChangesIter = paddleSpeedChanges.begin();
     std::string output = "";
     while (true)
     {
@@ -42,9 +49,19 @@ std::string Serializer::saveBallfile(
         // `1`: Ball
         // `2`: BPM Change
         // `3`: Paddle width change
+        // `4`: Paddle speed change
         uint8_t next = 0;
         double leastBeat = INFINITY;
-         // Prioritize Paddle Width changes over BPM changes.
+        // Prioritize Paddle Speed changes over the below changes.
+        if (paddleSpeedChangesIter != paddleSpeedChanges.end())
+        {
+            if (paddleSpeedChangesIter->beat < leastBeat)
+            {
+                leastBeat = paddleSpeedChangesIter->beat;
+                next = 4;
+            }
+        }
+        // Prioritize Paddle Width changes over BPM changes.
         if (paddleWidthChangesIter != paddleWidthChanges.end())
         {
             if (paddleWidthChangesIter->beat < leastBeat)
@@ -140,6 +157,14 @@ std::string Serializer::saveBallfile(
                 output += ":pw\n";
                 ++paddleWidthChangesIter;
                 break;
+            case 4:
+                // PS change.
+                output += std::to_string(paddleSpeedChangesIter->beat);
+                output += ':';
+                output += std::to_string(paddleSpeedChangesIter->speed);
+                output += ":ps\n";
+                ++paddleSpeedChangesIter;
+                break;
         }
     }
     if (!output.empty())
@@ -159,6 +184,7 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)
     this->lines.clear();
     this->bpmChanges.clear();
     this->paddleWidthChanges.clear();
+    this->paddleSpeedChanges.clear();
 
     std::vector<Ball> balls;
 
@@ -268,6 +294,15 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)
                     });
                     continue;
                 }
+                else if (segments.at(2).compare(paddleSpeedString) == 0)
+                {
+                    // Add paddle width change.
+                    this->paddleSpeedChanges.push_back((PaddleSpeedChange) {
+                        beat,
+                        (float) x
+                    });
+                    continue;
+                }
                 else if (!checkIsDouble(segments.at(2), speed))
                 {
                     this->errors.push_back((SerializerError) {
@@ -364,7 +399,8 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)
         SerializerSuccess success {
             balls,
             this->bpmChanges,
-            this->paddleWidthChanges
+            this->paddleWidthChanges,
+            this->paddleSpeedChanges
         };
         // Return errors.
         SerializerResult result {
@@ -385,4 +421,106 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)
         };
         return result;
     }
+}
+
+std::string Serializer::writeCommands(std::vector<Command> &commands)
+{
+    std::string result;
+
+    for (Command& command : commands)
+    {
+        // Commands separated by a comma are 'considered' separate.
+        double beat = command.beat;
+        std::string str = command.action;
+
+        std::vector<std::string> actions = splitStringStream(str, ',');
+        for (std::string& action : actions)
+        {
+            result += std::to_string(beat) + ":" + action + "\n";
+        }
+    }
+
+    if (!result.empty())
+    {
+        // Trim last \n character.
+        if (result.at(result.size() - 1) == '\n')
+            result.erase(result.size() - 1, 1);
+    }
+    return result;
+}
+
+std::vector<Command> Serializer::readCommands(char *contents, size_t byteCount)
+{
+    std::vector<Command> result;
+    this->lines.clear();
+    size_t i = 0;
+    char ch;
+    std::vector<char> charsInLine;
+    while (i < byteCount)
+    {
+        ch = contents[i++];
+        if (ch == '\n' && !charsInLine.empty())
+        {
+            this->lines.push_back(charsInLine);
+            charsInLine.clear();
+        }
+        else if (ch == '\r' || ch == ' ')
+            ;
+        else
+        {
+            charsInLine.push_back(ch);
+        }
+    }
+    if (!charsInLine.empty())
+    {
+        this->lines.push_back(charsInLine);
+        charsInLine.clear();
+    }
+
+    double lastBeat = -INFINITY;
+
+    for (std::vector<char>& line : lines)
+    {
+        size_t firstColonPos = 0;
+        for (char c : line)
+        {
+            if (c == ':') break;
+            firstColonPos++;
+        }
+        if (firstColonPos == line.size()) continue; // invalid
+        std::string beat;
+        for (size_t i = 0; i < firstColonPos; i++)
+            beat += line.at(i);
+        std::string action;
+        for (size_t i = firstColonPos + 1; i < line.size(); i++)
+            action += line.at(i);
+        
+        double beatDouble;
+        if (!checkIsDouble(beat, beatDouble)) continue;
+
+        if (lastBeat == beatDouble)
+        {
+            result.rbegin()->action += "," + action;
+        }
+        else
+        {
+            result.push_back(Command {
+                beatDouble,
+                action
+            });
+            lastBeat = beatDouble;
+        }
+    }
+
+    return result;
+}
+
+std::vector<std::string> splitStringStream(const std::string& str, char delimiter) {
+    std::vector<std::string> tokens;
+    std::istringstream iss(str);
+    std::string token;
+    while (std::getline(iss, token, delimiter)) {
+        tokens.push_back(token);
+    }
+    return tokens;
 }

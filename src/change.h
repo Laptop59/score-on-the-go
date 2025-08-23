@@ -55,4 +55,58 @@ struct PaddleWidthChange
     }
 };
 
+// Defines a Paddle Speed change.
+struct PaddleSpeedChange
+{
+    double beat;
+    float speed;
+
+    bool operator<(PaddleSpeedChange other)
+    {
+        return beat < other.beat;
+    }
+
+    bool operator>(PaddleSpeedChange other)
+    {
+        return beat > other.beat;
+    }
+
+    bool operator<=(PaddleSpeedChange other)
+    {
+        return beat <= other.beat;
+    }
+
+    bool operator>=(PaddleSpeedChange other)
+    {
+        return beat >= other.beat;
+    }
+};
+
+// Defines a Command.
+struct Command
+{
+    double beat;
+    std::string action;
+
+    bool operator<(Command other)
+    {
+        return beat < other.beat;
+    }
+
+    bool operator>(Command other)
+    {
+        return beat > other.beat;
+    }
+
+    bool operator<=(Command other)
+    {
+        return beat <= other.beat;
+    }
+
+    bool operator>=(Command other)
+    {
+        return beat >= other.beat;
+    }
+};
+
 #endif

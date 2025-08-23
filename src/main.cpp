@@ -30,7 +30,24 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     SDL_Renderer* renderer;
     SDL_Window* window;
 
-    if (!SDL_CreateWindowAndRenderer(NAME, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_MAXIMIZED | SDL_WINDOW_RESIZABLE, &window, &renderer))
+    int width = SCREEN_WIDTH, height = SCREEN_HEIGHT;
+
+    SDL_DisplayID displayId = SDL_GetPrimaryDisplay();
+    if (displayId)
+    {
+        SDL_Rect rect;
+        SDL_GetDisplayUsableBounds(displayId, &rect);
+        int scaleX = rect.w / SCREEN_WIDTH;
+        int scaleY = rect.h / SCREEN_HEIGHT;
+        int minScale = std::min(scaleX, scaleY);
+        if (minScale > 1)
+        {
+            width *= minScale;
+            height *= minScale;
+        }
+    }
+
+    if (!SDL_CreateWindowAndRenderer(NAME, width, height, SDL_WINDOW_MAXIMIZED | SDL_WINDOW_RESIZABLE, &window, &renderer))
     {
         SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Window/Renderer Error: %s", SDL_GetError());
         return SDL_APP_FAILURE;

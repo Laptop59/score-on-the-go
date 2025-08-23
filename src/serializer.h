@@ -1,4 +1,5 @@
 #ifndef SCORE_ON_THE_GO_SERIALIZER
+#define SCORE_ON_THE_GO_SERIALIZER
 
 #include <vector>
 #include "ball.h"
@@ -14,6 +15,7 @@ struct SerializerSuccess
     std::vector<Ball> balls;
     std::vector<BpmChange> bpmChanges;
     std::vector<PaddleWidthChange> paddleWidthChanges;
+    std::vector<PaddleSpeedChange> paddleSpeedChanges;
 };
 
 // Represents a serializer error.
@@ -38,6 +40,9 @@ const std::string bpmString = "bpm";
 // Used in parsing ballfiles for paddle width changes.
 const std::string paddleWidthString = "pw";
 
+// Used in parsing ballfiles for paddle speed changes.
+const std::string paddleSpeedString = "ps";
+
 class Serializer
 {
     private:
@@ -46,17 +51,26 @@ class Serializer
         std::vector<std::vector<char>> lines;
         std::vector<BpmChange> bpmChanges;
         std::vector<PaddleWidthChange> paddleWidthChanges;
+        std::vector<PaddleSpeedChange> paddleSpeedChanges;
+        std::vector<Command> commands;
 
     public:
         // Creates a new serializer for use.
         Serializer();
 
-        // Saves a ball file and returns string contents.
-        std::string saveBallfile(std::vector<Ball> &balls, std::vector<BpmChange> &bpmChanges, std::vector<PaddleWidthChange> &paddleWidthChanges);
+        // Saves a ball file by returning string contents.
+        std::string saveBallfile(std::vector<Ball> &balls, std::vector<BpmChange> &bpmChanges, std::vector<PaddleWidthChange> &paddleWidthChanges, std::vector<PaddleSpeedChange> &paddleSpeedChanges);
         
         // Reads a ball file from its contents and returns the result.
         // Note: DO NOT PASS `NULL`/`nullptr` into the contents.
         SerializerResult readBallfile(char* contents, size_t byteCount);
+
+        // Writes commands from its contents and returns the result.
+        std::string writeCommands(std::vector<Command> &commands);
+
+        // Reads commands from its contents and returns the result.
+        // Note: DO NOT PASS `NULL`/`nullptr` into the contents.
+        std::vector<Command> readCommands(char* contents, size_t byteCount);
 
         // Checks if a string is a double and parses it if so.
         static bool checkIsDouble(std::string inputString, double &result) {
@@ -94,5 +108,7 @@ class Serializer
         // Gets all the tail points of a ball's type.
         static std::vector<BallTypeTailPoint>* getPointsFromType(BallType& type);
 };
+
+std::vector<std::string> splitStringStream(const std::string& str, char delimiter);
 
 #endif
