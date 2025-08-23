@@ -6,7 +6,11 @@ This editor allows interactive editing of
 - a Background Commands file (a format for playing different background animations outside the editor.)
 
 To learn more about the keybinds in this program, press `F1` to open a list of actions with the keyboard.
-You must be able to compile this app to use it with the SDL libraries to start using the app.
+
+No binary releases will be provided to you as of now;
+you must be able to compile this app along with the SDL3 libraries to start using the app.
+This app currently uses a bleeding-edge version of `sdl3_mixer` not actually released yet.
+
 Be aware that bugs and glitches may exist in this application but the editor is in a mostly-usable state.
 
 ## Dependencies
@@ -19,11 +23,12 @@ These dependencies are required to compile the program:
 Yes, it doesn't use SDL2. It uses *SDL3*.
 
 ## Using with Scratch project
-The following tutorials cover the basics. To use the editor's full potential, open help with `F1`.
+The following tutorials cover the basics.
+To use the editor's full potential, open help with `F1`.
 
 ### Charts/Ballfiles (.txt)
 Making charts tediously with editing a text file was not productive - so this editor can be used to help speed up the progress of making 'Ballfiles':
-1.  Open the Editor
+1.  Open the Editor.
 2.  Load your music as a reference by using the key `M`.
 3.  Place balls in different x-positions and playtest your creation with `F3`. When you're done, use `F2` for the entire chart.
     Use the `P` key to switch between different 'placing modes' or 'ball types' in the game.
@@ -34,8 +39,16 @@ Making charts tediously with editing a text file was not productive - so this ed
 7.  To import your ballfiles use the `L` key. The balls and entries must be separated per line - so keep a backup of your ballfiles before loading them in!
 
 ### BG Commands (.bgc)
-1.  Open the Editor
+1.  Open the Editor.
 2.  Load your music and a chart as a reference. Beware that this will wipe your currently loaded commands.
 3.  At certain places press the `C` to insert commands.
 4.  When you are done press `O` to save your commands into a file (this is not a ballfile!).
-5.  These files can then be imported with the `I` key - your currently-loaded commands will then be overridden and lost if not saved! The entries must be separated per line - so keep a backup of your ballfiles before loading them in!
+5.  These files can then be imported with the `I` key - your currently-loaded commands will then be overridden and lost if not saved!
+    The entries must be separated per line - so keep a backup of your ballfiles before loading them in!
+
+## Credits
+The SDL3 library acting as the framework for this project: [SDL](https://github.com/libsdl-org/SDL) and its other libraries.
+
+The sample SDL3 project: [sdl3-sample](https://github.com/Ravbug/sdl3-sample).
+
+The **Noto Sans** font: [Noto Dashboard](https://notofonts.github.io/).
