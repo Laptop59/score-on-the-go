@@ -9,7 +9,7 @@ To learn more about the keybinds in this program, press `F1` to open a list of a
 
 No binary releases will be provided to you as of now;
 you must be able to compile this app along with the SDL3 libraries to start using the app.
-This app currently uses a bleeding-edge version of `sdl3_mixer` not actually released yet.
+This app currently uses a bleeding-edge version of `sdl3_mixer` not actually released yet from GitHub.
 
 Be aware that bugs and glitches may exist in this application but the editor is in a mostly-usable state.
 
