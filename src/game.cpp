@@ -807,9 +807,9 @@ void Game::drawEditorBalls(float endY)
                 y2 = ball.at + point->minibeats;
                 {
                     // Draw points.
-                    float p1 = x1 + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2;
+                    float p1 = x1 + getGameplayXoffset() + GAMEPLAY_WIDTH / 2;
                     float p2 = getEditorSelectedBeatY() + (Ball::toBeats(y1) - this->beat) * beatSpacing;
-                    float p3 = x2 + GAMEPLAY_OFFSET + GAMEPLAY_WIDTH / 2;
+                    float p3 = x2 + getGameplayXoffset() + GAMEPLAY_WIDTH / 2;
                     float p4 = getEditorSelectedBeatY() + (Ball::toBeats(y2) - this->beat) * beatSpacing;
                     SDL_SetRenderDrawColor(this->renderer, 0xFF, 0xFF, 0xFF, 0xFF);
                     SDL_RenderLine(this->renderer, p1, p2, p3, p4);
@@ -2957,12 +2957,12 @@ double Game::getBeatFromSeconds(double seconds)
     double lastBeat = 0.0;
 
     // Iterate over BPM changes
-    for (auto bpmChange = bpmChanges.begin(); bpmChange != bpmChanges.end(); ++bpmChange)
+    for (BpmChange& bpmChange : this->bpmChanges)
     {
-        double timeBeforeNext = (bpmChange->beat - lastBeat) * 60.0 / currentBpm;
+        double timeBeforeNext = (bpmChange.beat - lastBeat) * 60.0 / currentBpm;
         
         // Check if we've reached or exceeded the desired time
-        if (currentSeconds + timeBeforeNext >= seconds)
+        if (seconds < currentSeconds + timeBeforeNext + 1e-9)
         {
             double remainingSeconds = seconds - currentSeconds;
             currentBeat += remainingSeconds * currentBpm / 60.0;
@@ -2970,12 +2970,12 @@ double Game::getBeatFromSeconds(double seconds)
         }
 
         // Otherwise, continue to the next BPM change
-        currentBeat += bpmChange->beat - lastBeat;
+        currentBeat += bpmChange.beat - lastBeat;
         currentSeconds += timeBeforeNext;
         
         // Update the current BPM
-        currentBpm = bpmChange->bpm;
-        lastBeat = bpmChange->beat;
+        currentBpm = bpmChange.bpm;
+        lastBeat = bpmChange.beat;
     }
 
     // After the last BPM change, calculate the remaining time
@@ -3061,7 +3061,7 @@ double Game::getSecondsFromBeat(double beat)
         double beatsBetweenChanges = bpmChange->beat - lastBeat;
 
         // If the requested beat is within this segment.
-        if (beatsRemaining <= beatsBetweenChanges) {
+        if (beatsRemaining < beatsBetweenChanges - 1e-9) {
             currentSeconds += (beatsRemaining / currentBpm) * 60.0;
             break;
         }

@@ -43,8 +43,9 @@ Making charts tediously with editing a text file was not productive - so this ed
 2.  Load your music and a chart as a reference. Beware that this will wipe your currently loaded commands.
 3.  At certain places press the `C` to insert commands.
 4.  When you are done press `O` to save your commands into a file (this is not a ballfile!).
-5.  These files can then be imported with the `I` key - your currently-loaded commands will then be overridden and lost if not saved!
-    The entries must be separated per line - so keep a backup of your ballfiles before loading them in!
+5.  Go to the Scratch Project and paste in the chart into a list entry of the list `& SONG BG CHANGES`; the newlines are converted to spaces and the game can read the commands.
+6.  These files can then be imported with the `I` key - your currently-loaded commands will then be overridden and lost if not saved!
+    The entries must be separated per line - so keep a backup of your command files before loading them in.
 
 ## Credits
 The SDL3 library acting as the framework for this project: [SDL](https://github.com/libsdl-org/SDL) and its other libraries.

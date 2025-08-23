@@ -47,6 +47,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
         }
     }
 
+    SDL_Log("Attempting to use %d by %d as window resolution.", width, height);
     if (!SDL_CreateWindowAndRenderer(NAME, width, height, SDL_WINDOW_MAXIMIZED | SDL_WINDOW_RESIZABLE, &window, &renderer))
     {
         SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Window/Renderer Error: %s", SDL_GetError());
