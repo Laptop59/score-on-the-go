@@ -1,6 +1,8 @@
 # Score on the Go
 Score on the Go is currently a ballfile editor for creating the game's charts.
 
+https://github.com/user-attachments/assets/277f0623-df65-4578-854b-e79091d91d38
+
 This editor allows interactive editing of
 - a Ballfile (a 'chart', one for each difficulty - contains its own BPM changes and Paddle Width & Speed changes)
 - a Background Commands file (a format for playing different background animations outside the editor.)
