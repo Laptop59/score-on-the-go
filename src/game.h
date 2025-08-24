@@ -145,14 +145,15 @@ struct GameplayLeftPosition
  */
 enum GameState
 {
-    PLAYING            = 0x00,
-    PLAYTESTING        = 0x01,
-    EDITING_NONE       = 0x02,
-    EDITING_BPM        = 0x03,
-    EDITING_HELP       = 0x04,
-    EDITING_PW         = 0x05,
-    EDITING_PS         = 0x06,
-    EDITING_CMD        = 0x07
+    PLAYING               = 0x00,
+    PLAYTESTING           = 0x01,
+    EDITING_NONE          = 0x02,
+    EDITING_BPM           = 0x03,
+    EDITING_HELP          = 0x04,
+    EDITING_PW            = 0x05,
+    EDITING_PS            = 0x06,
+    EDITING_CMD           = 0x07,
+    EDITING_MUSIC_OFFSET  = 0x08
 };
 
 /*
@@ -300,6 +301,9 @@ class Game
 
         // Whether input has been enabled in same frame.
         bool instantaneousInput = false;
+
+        // Music offset (negative = music plays earlier, positive = music plays later)
+        float musicOffset = 0.0;
 
         // Selected ball to place.
         SelectedPlacableBall selectedToPlace = SelectedPlacableBall::NORMAL;
@@ -719,6 +723,9 @@ class Game
 
         // Function to update with new delta time.
         void update();
+
+        // Get the seconds used by music.
+        double currentMusicSeconds();
 
         // Function to render to the renderer.
         void render();

@@ -82,7 +82,7 @@ std::string Serializer::saveBallfile(
         // Now ball.
         if (ballIter != balls.end())
         {
-            if (ballIter->at < leastBeat)
+            if (Ball::toBeats(ballIter->at) < leastBeat)
             {
                 leastBeat = Ball::toBeats(ballIter->at);
                 next = 1;

@@ -497,6 +497,7 @@ void Game::renderEditor()
                 }
             }
         }
+        DRAW_TEXT_W("Music Offset: " + formatFloat(musicOffset, 3));
         LEAVE_LINE();
         DRAW_TEXT_W("Mode: " + getText(this->placingMode));
         size_t i = 0;
@@ -723,6 +724,23 @@ void Game::drawSpecificEditorMenu()
             );
             break;
 
+        case GameState::EDITING_MUSIC_OFFSET:
+            drawText(
+                "Change Music Offset", WHITE,
+                x, y - 50, TextAlignment::CENTER_ALIGNED, 1.0f
+            );
+            drawText(
+                getDisplayedInputText(),
+                SDL_Color { 0xDFu, 0x6Fu, 0xDFu, 0xFFu },
+                x, y + 50, TextAlignment::CENTER_ALIGNED, 0.75f
+            );
+            drawText(
+                "Note: Negative = music plays earlier, while Positive = music plays later.",
+                SDL_Color {0xFFu, 0xAFu, 0xFFu, 0xFFu},
+                x, y + 100, TextAlignment::CENTER_ALIGNED, 0.5f
+            );
+            break;
+
         case GameState::EDITING_HELP:
             drawTextWithOutline("HELP", WHITE, x, 10, CENTER_ALIGNED, 0.5f, 1, WHITE);
             shadedTextEnabled = true;
@@ -748,7 +766,7 @@ void Game::drawSpecificEditorMenu()
                 DRAW_HELP("ESC", "Escape from Current Menu");
                 DRAW_HELP("L", "Load a Ballfile");
                 DRAW_HELP("S", "Save a Ballfile");
-                DRAW_HELP("M", "Load Audio for Playtesting");
+                DRAW_HELP("M", "Load Audio for Playtesting (or + ALT to set music offset)");
                 DRAW_HELP("P", "Cycle Placing Mode");
                 DRAW_HELP("B", "Add BPM Change");
                 DRAW_HELP("W", "Add Paddle Width Change");
@@ -778,7 +796,7 @@ void Game::drawEditorBalls(float endY)
     double min = beat;
     min -= (double) getEditorSelectedBeatY() / this->beatSpacing; // For above selected beat.
     min -= (double) BALL_SIZE / this->beatSpacing; // For ball texture to be drawn offscreen.
-    // min -= 1.0f; // Just to be safe.
+    min -= 1.0f; // Just to be safe.
     if (min < 0) min = 0;
 
     // Maximum beat
@@ -1842,8 +1860,17 @@ void Game::handleKeyDownEvent(SDL_Event* event)
             }
             break;
         case SDLK_M:
-            // Open music picker.
-            if (!filePickerOpen)
+            if (event->key.mod & SDL_KMOD_ALT)
+            {
+                if (gameState == EDITING_MUSIC_OFFSET)
+                    gameState = EDITING_NONE;
+                else if (gameState == EDITING_NONE)
+                {
+                    gameState = EDITING_MUSIC_OFFSET;
+                    resetInput();
+                }
+            }
+            else if (!filePickerOpen) // Open music picker.
             {
                 openLoadMusicPicker();
             }
@@ -1892,13 +1919,13 @@ void Game::startPlayTest(double beat)
     gameState = GameState::PLAYTESTING;
     startPlaytestingBeat = beat;
     seconds = getSecondsFromBeat(startPlaytestingBeat);
-    seconds -= 1; // Introduce delay for giving the player time to playtest.
+    // seconds -= 1; // Introduce delay for giving the player time to playtest.
     startPlaytestingBeat = getBeatFromSeconds(seconds);
     this->beat = startPlaytestingBeat;
     // Now expand the queued balls (e.g. holds)
     setQueuedBalls(beat);
-    if (seconds >= 0) {
-        startPlayingMusic(seconds);
+    if (currentMusicSeconds() >= 0) {
+        startPlayingMusic(currentMusicSeconds());
     }
 }
 
@@ -2145,6 +2172,15 @@ bool Game::handleMenuEvent(SDL_Event* event)
                             });
                         }
                     }
+                    else if (gameState == GameState::EDITING_MUSIC_OFFSET)
+                    {
+                        double result;
+                        gameState = GameState::EDITING_NONE;
+                        if (Serializer::checkIsDouble(this->inputText, result))
+                        {
+                            this->musicOffset = (float) result;
+                        }
+                    }
                     break;
             }
     }
@@ -2161,6 +2197,8 @@ bool Game::handleMenuEvent(SDL_Event* event)
                 n = (char) (key - SDLK_0) + '0';
             else if (key == SDLK_KP_0)
                 n = '0';
+            else if (gameState == GameState::EDITING_MUSIC_OFFSET && (key == SDLK_MINUS || key == SDLK_KP_MINUS))
+                n = '-';
             else if (key >= SDLK_KP_1 && key <= SDLK_KP_9)
                 n = (char) (key - SDLK_KP_1) + '1';
             else if (!shift && (key == SDLK_PERIOD || key == SDLK_KP_PERIOD))
@@ -2219,7 +2257,7 @@ bool Game::handleMenuEvent(SDL_Event* event)
             {
                 n = ' ';
             }
-            else if (key == SDLK_MINUS)
+            else if (key == SDLK_MINUS && key == SDLK_KP_MINUS)
             {
                 n = shift ? '_' : '-';
             }
@@ -2314,14 +2352,19 @@ void Game::update()
         paddlePosition = (paddlePosition / std::abs(paddlePosition)) * (PADDLE_MAX_LEFT - getPaddleWidth() / 2);
     }
     // Ball handling.
-    if (seconds < 0 && seconds + deltaTimePassed >= 0)
+    if (currentMusicSeconds() < 0 && currentMusicSeconds() + deltaTimePassed >= 0)
     {
-        startPlayingMusic(seconds + deltaTimePassed);
+        startPlayingMusic(currentMusicSeconds() + deltaTimePassed);
     }
     seconds += deltaTimePassed;
     beat = getBeatFromSeconds(seconds);
     updateBalls();
     updateFlashes();
+}
+
+double Game::currentMusicSeconds()
+{
+    return seconds - musicOffset;
 }
 
 void Game::updateFlashes()
@@ -2671,7 +2714,7 @@ void Game::resetInput()
 
 InputMode Game::inputModeEnabled()
 {
-    if (gameState == GameState::EDITING_BPM || gameState == GameState::EDITING_PW || gameState == GameState::EDITING_PS) return InputMode::NUMERIC;
+    if (gameState == GameState::EDITING_BPM || gameState == GameState::EDITING_PW || gameState == GameState::EDITING_PS || gameState == GameState::EDITING_MUSIC_OFFSET) return InputMode::NUMERIC;
     if (gameState == GameState::EDITING_CMD) return InputMode::TEXT;
     return InputMode::NONE;
 }
@@ -3062,7 +3105,6 @@ double Game::getSecondsFromBeat(double beat)
 
         // If the requested beat is within this segment.
         if (beatsRemaining < beatsBetweenChanges - 1e-9) {
-            currentSeconds += (beatsRemaining / currentBpm) * 60.0;
             break;
         }
 
