@@ -355,6 +355,24 @@ void Game::renderQueuedBalls()
             continue; // Go to the next ball.
         }
         renderIndependentBall(*ball, destRect);
+        if (std::holds_alternative<BallTypeBouncy>(ball->type))
+        {
+            BallTypeBouncy& ballTypeBouncy = std::get<BallTypeBouncy>(ball->type);
+            // Create some fake balls.
+            for (minibeat i = 0; i <= ballTypeBouncy.respawns; i++)
+            {
+                Ball fake(ball->at + i * ballTypeBouncy.interval, ball->speed, ball->x);
+                float fakeY = getSignedFallingBallPos(fake) + size / 2 - queuedBallsYoffset();
+                if (fakeY > SCREEN_HEIGHT / 2 + size) break; // Off-screen, skip rendering.
+                destRect = SDL_FRect {
+                    renderX + getGameplayXoffset() + GAMEPLAY_WIDTH / 2,
+                    GAMEPLAY_HEIGHT / 2 - fakeY,
+                    size,
+                    size
+                };
+                renderIndependentBall(fake, destRect, 0x3F);
+            }
+        }
     }
     this->renderFlashesAndJudgement();
 }
@@ -930,6 +948,24 @@ void Game::drawEditorBalls(float endY)
         if (ball->at >= minibeatsMin && ball->at <= minibeatsMax)
         {
             drawEditorBall(*ball);
+        }
+        if (std::holds_alternative<BallTypeBouncy>(ball->type))
+        {
+            BallTypeBouncy& ballTypeBouncy = std::get<BallTypeBouncy>(ball->type);
+            // Create some fake balls.
+            for (minibeat i = 0; i <= ballTypeBouncy.respawns; i++)
+            {
+                Ball fake(ball->at + i * ballTypeBouncy.interval, ball->speed, ball->x);
+                SDL_FRect rect = this->textureLibrary->createRect(
+                    ball->x + getGameplayXoffset() + GAMEPLAY_WIDTH / 2 - (float) (BALL_SIZE) / 2,
+                    getEditorSelectedBeatY() + (Ball::toBeats(ball->at + i * ballTypeBouncy.interval) - this->beat) * this->beatSpacing - (float) (BALL_SIZE) / 2,
+                    BALL_SIZE,
+                    BALL_SIZE
+                );
+                if (rect.y + BALL_SIZE / 2 < 0) continue;
+                if (rect.y > SCREEN_HEIGHT) break;
+                renderIndependentBall(fake, rect, 0x1F);
+            }
         }
         if (minibeatsCurrent >= ball->at && ghostBallStage == 0)
         {
