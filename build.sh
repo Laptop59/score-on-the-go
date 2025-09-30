@@ -1,2 +1,2 @@
 #!/bin/bash
-make
+cmake -S . -B build

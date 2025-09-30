@@ -7,7 +7,7 @@ This editor allows interactive editing of
 - a Ballfile (a 'chart', one for each difficulty - contains its own BPM changes and Paddle Width & Speed changes)
 - a Background Commands file (a format for playing different background animations outside the editor.)
 
-To learn more about the keybinds in this program, press `F1` to open a list of actions with the keyboard.
+To learn more about the keybinds in this program, press `F1` once to open a list of actions with the keyboard.
 
 No binary releases will be provided to you as of now;
 you must be able to compile this app along with the SDL3 libraries to start using the app.
