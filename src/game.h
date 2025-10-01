@@ -79,7 +79,7 @@ const float SELECTOR_RECTANGLE_OUTLINE_THICKNESS = 1.5f;
 const float FAST_BALL_SPEED = 1.5f;
 
 // Default BPM when nothing else exists.
-const double DEFAULT_BPM = 120.0;
+constexpr static double DEFAULT_BPM = 120.0;
 
 // Unit worth of a relative font size.
 const float UNIT_FONT_SIZE = 0.5f;
@@ -260,7 +260,7 @@ class Game
         //////////////////////////////// CONSTANTS ///////////////////////////////////////
 
         // Default paddle width.
-        float DEFAULT_PADDLE_WIDTH = 125.0f;
+        constexpr static float DEFAULT_PADDLE_WIDTH = 125.0f;
 
         // Maximum from left the paddle can go in either side.
         float PADDLE_MAX_LEFT = GAMEPLAY_WIDTH / 2 - 13.0f;
@@ -275,7 +275,7 @@ class Game
         float PADDLE_HEIGHT = 22.0f;
 
         // Paddle speed (per second).
-        float DEFAULT_PADDLE_SPEED = 4.0f * 30;
+        constexpr static float DEFAULT_PADDLE_SPEED = 4.0f * 30;
 
         // Time it takes to fully complete the change of paddle width.
         double PADDLE_TRANSITION_DURATION = 1.0;
@@ -451,6 +451,12 @@ class Game
 
         // Draw balls in the editor for editing.
         void drawEditorBalls(float endY);
+
+        // Open a open file dialog and call the callback after it has been closed.
+        static void showOpenFileDialog(SDL_DialogFileCallback callback, void *userdata, SDL_Window *window, const SDL_DialogFileFilter *filters, int nfilters, const char *default_location, bool allow_many);
+
+        // Open a save file dialog and call the callback after it has been closed.
+        static void showSaveFileDialog(SDL_DialogFileCallback callback, void *userdata, SDL_Window *window, const SDL_DialogFileFilter *filters, int nfilters, const char *default_location);
 
         // Checks whether a 'ball' is fast enough to have a thunderbolt symbol.
         bool isFast(float ballSpeed);

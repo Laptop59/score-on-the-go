@@ -7,24 +7,24 @@ struct BpmChange
     double beat;
     double bpm;
 
-    bool operator<(BpmChange other)
+    friend bool operator<(const BpmChange lhs, const BpmChange rhs)
     {
-        return beat < other.beat;
+        return lhs.beat < rhs.beat;
     }
 
-    bool operator>(BpmChange other)
+    friend bool operator>(const BpmChange lhs, const BpmChange rhs)
     {
-        return beat > other.beat;
+        return lhs.beat > rhs.beat;
     }
 
-    bool operator<=(BpmChange other)
+    friend bool operator<=(const BpmChange lhs, const BpmChange rhs)
     {
-        return beat <= other.beat;
+        return lhs.beat <= rhs.beat;
     }
 
-    bool operator>=(BpmChange other)
+    friend bool operator>=(const BpmChange lhs, const BpmChange rhs)
     {
-        return beat >= other.beat;
+        return lhs.beat >= rhs.beat;
     }
 };
 
@@ -34,24 +34,24 @@ struct PaddleWidthChange
     double beat;
     float width;
 
-    bool operator<(PaddleWidthChange other)
+    friend bool operator<(const PaddleWidthChange lhs, const PaddleWidthChange rhs)
     {
-        return beat < other.beat;
+        return lhs.beat < rhs.beat;
     }
 
-    bool operator>(PaddleWidthChange other)
+    friend bool operator>(const PaddleWidthChange lhs, const PaddleWidthChange rhs)
     {
-        return beat > other.beat;
+        return lhs.beat > rhs.beat;
     }
 
-    bool operator<=(PaddleWidthChange other)
+    friend bool operator<=(const PaddleWidthChange lhs, const PaddleWidthChange rhs)
     {
-        return beat <= other.beat;
+        return lhs.beat <= rhs.beat;
     }
 
-    bool operator>=(PaddleWidthChange other)
+    friend bool operator>=(const PaddleWidthChange lhs, const PaddleWidthChange rhs)
     {
-        return beat >= other.beat;
+        return lhs.beat >= rhs.beat;
     }
 };
 
@@ -61,24 +61,24 @@ struct PaddleSpeedChange
     double beat;
     float speed;
 
-    bool operator<(PaddleSpeedChange other)
+    friend bool operator<(const PaddleSpeedChange lhs, const PaddleSpeedChange rhs)
     {
-        return beat < other.beat;
+        return lhs.beat < rhs.beat;
     }
 
-    bool operator>(PaddleSpeedChange other)
+    friend bool operator>(const PaddleSpeedChange lhs, const PaddleSpeedChange rhs)
     {
-        return beat > other.beat;
+        return lhs.beat > rhs.beat;
     }
 
-    bool operator<=(PaddleSpeedChange other)
+    friend bool operator<=(const PaddleSpeedChange lhs, const PaddleSpeedChange rhs)
     {
-        return beat <= other.beat;
+        return lhs.beat <= rhs.beat;
     }
 
-    bool operator>=(PaddleSpeedChange other)
+    friend bool operator>=(const PaddleSpeedChange lhs, const PaddleSpeedChange rhs)
     {
-        return beat >= other.beat;
+        return lhs.beat >= rhs.beat;
     }
 };
 
@@ -88,24 +88,24 @@ struct Command
     double beat;
     std::string action;
 
-    bool operator<(Command other)
+    friend bool operator<(const Command lhs, const Command rhs)
     {
-        return beat < other.beat;
+        return lhs.beat < rhs.beat;
     }
 
-    bool operator>(Command other)
+    friend bool operator>(const Command lhs, const Command rhs)
     {
-        return beat > other.beat;
+        return lhs.beat > rhs.beat;
     }
 
-    bool operator<=(Command other)
+    friend bool operator<=(const Command lhs, const Command rhs)
     {
-        return beat <= other.beat;
+        return lhs.beat <= rhs.beat;
     }
 
-    bool operator>=(Command other)
+    friend bool operator>=(const Command lhs, const Command rhs)
     {
-        return beat >= other.beat;
+        return lhs.beat >= rhs.beat;
     }
 };
 

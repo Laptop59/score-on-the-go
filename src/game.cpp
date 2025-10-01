@@ -1,5 +1,18 @@
 #include "game.h"
 
+#ifdef __EMSCRIPTEN__
+    #include <emscripten.h>
+
+    EM_JS(int, _malloc, (int size), {
+        return ccall('malloc', 'number', ['number'], [size]);
+    });
+
+    EM_JS(void, _free, (int ptr), {
+        ccall('free', null, ['number'], [ptr]);
+    });
+
+#endif
+
 #include <SDL3/SDL_render.h>
 #include <SDL3/SDL_timer.h>
 #include <SDL3_ttf/SDL_ttf.h>
@@ -531,6 +544,7 @@ void Game::renderEditor()
                 DRAW_HELP("7/8", "+/- 192nd");
                 DRAW_HELP("9/0", "R=1/I=48");
                 break;
+            default: break;
         }
         LEAVE_LINE();
         DRAW_TEXT_W("Balls - " + std::to_string(this->balls.size()));
@@ -641,6 +655,7 @@ void Game::handleCustomPlacingModeKey(CustomPlacingModeKey key)
             if (newInterval <= 0) return; // Stop the operation if it becomes non +ve.
             editorBouncyInterval = (minibeat) newInterval;
         }
+        default: break;
     }
 }
 
@@ -795,6 +810,7 @@ void Game::drawSpecificEditorMenu()
             }
             shadedTextEnabled = false;
             break;
+        default: break;
     }
 }
 
@@ -983,11 +999,99 @@ void Game::drawEditorBalls(float endY)
         this->drawGhostBall(); // Draw it if it hasn't been drawn already.
 }
 
+void Game::showOpenFileDialog(SDL_DialogFileCallback callback, void *userdata, SDL_Window *window, const SDL_DialogFileFilter *filters, int nfilters, const char *default_location, bool allow_many)
+{
+    static uint32_t fileIndex = 0;
+
+    #ifdef __EMSCRIPTEN__
+        EM_ASM({
+            var callbackPtr = $0;
+            var userdataPtr = $1;
+            var windowPtr = $2;
+            var filtersPtr = $3;
+            var nfilters = $4;
+            var allowMany = $5;
+
+            var voidPtrSize = $6;
+            var fileIndexPtr = $7;
+
+            var input = document.createElement('input');
+            input.multiple = allowMany;
+            input.type = 'file';
+            var allowAll = false;
+            var allowedFilters = [];
+
+            // Read the filters
+            if (filtersPtr != 0) {
+                var currentPtr = filtersPtr;
+                for (var i = 0; i < nfilters; i++) {
+                    currentPtr += voidPtrSize; // skip name
+                    var patternPtr = getValue(currentPtr, '*');
+                    currentPtr += voidPtrSize;
+
+                    var pattern = UTF8ToString(patternPtr);
+                    if (pattern != '*') {
+                        // convert something like this jpg;png;svg to .jpg,.png,.svg
+                        for (var filter of pattern.split(';')) {
+                            allowedFilters.push('.' + filter);
+                        }
+                    }
+                }
+
+                if (!allowAll && allowedFilters.length > 0) {
+                    input.accept = allowedFilters.join(',');
+                }
+            }
+
+            input.onchange = function(e) {
+                var pathPtrs = [];
+                for (var file of e.target.files) {
+                    // Return fake paths
+                    var v = getValue(fileIndexPtr, 'i32');
+                    var fakepath = 'content://sotgtempfile/' + (v >>> 0); // make it unsigned
+                    setValue(fileIndexPtr, (v + 1) >>> 0, 'i32');
+                    var len = lengthBytesUTF8(fakepath) + 1;
+                    var allocatedPath = _malloc(len);
+                    stringToUTF8(fakepath, allocatedPath, len);
+                    pathPtrs.push(allocatedPath);
+                }
+                var pathsPtr = _malloc((pathPtrs.length + 1) * voidPtrSize);
+                for (var i = 0; i < pathPtrs.length; i++) {
+                    setValue(pathsPtr + i * voidPtrSize, pathPtrs[i], '*');
+                }
+                setValue(pathsPtr + pathPtrs.length * voidPtrSize, 0, '*'); // NULL
+
+                // Calling function dynamically
+                dynCall(
+                    'vppi',
+                    getFunctionPtrIndex(Module.addFunction(callbackPtr, 'vppi'))
+                    [userdataPtr, pathsPtr, -1]
+                );
+
+                for (var ptr of pathPtrs) _free(ptr);
+                _free(pathsPtr);
+            };
+            input.click();
+        }, callback, userdata, window, filters, nfilters, allow_many, sizeof(void*), &fileIndex);
+    #else
+        SDL_ShowOpenFileDialog(callback, userdata, window, filters, nfilters, default_location, allow_many);
+    #endif
+}
+
+void Game::showSaveFileDialog(SDL_DialogFileCallback callback, void *userdata, SDL_Window *window, const SDL_DialogFileFilter *filters, int nfilters, const char *default_location)
+{
+    #ifdef __EMSCRIPTEN__
+
+    #else
+        SDL_ShowSaveFileDialog(callback, userdata, window, filters, nfilters, default_location);
+    #endif
+}
+
 void Game::openLoadBallFilePicker()
 {
     // Pass the game object to userdata for later.
     this->filePickerOpen = true;
-    SDL_ShowOpenFileDialog(
+    Game::showOpenFileDialog(
         &callbackLoadBallfilePicker,
         this,
         this->window,
@@ -1005,7 +1109,7 @@ void Game::openLoadCommandsPicker()
     const SDL_DialogFileFilter filters[] = {
         { "Background Commands", "bgc" },
     };
-    SDL_ShowOpenFileDialog(
+    Game::showOpenFileDialog(
         &callbackLoadCommandsPicker,
         this,
         this->window,
@@ -1024,7 +1128,7 @@ void Game::openLoadMusicPicker()
         { "Audio files", "mp3;ogg" },
         { "All files", "*" }
     };
-    SDL_ShowOpenFileDialog(
+    Game::showOpenFileDialog(
         &callbackLoadMusicPicker,
         this,
         this->window,
@@ -1039,7 +1143,7 @@ void Game::openSaveBallFilePicker()
 {
     // Pass the game object to userdata for later.
     this->filePickerOpen = true;
-    SDL_ShowSaveFileDialog(
+    Game::showSaveFileDialog(
         &callbackSaveBallfilePicker,
         this,
         this->window,
@@ -1056,7 +1160,7 @@ void Game::openSaveCommandsPicker()
     const SDL_DialogFileFilter filters[] = {
         { "Background Commands", "bgc" },
     };
-    SDL_ShowSaveFileDialog(
+    Game::showSaveFileDialog(
         &callbackSaveCommandsPicker,
         this,
         this->window,

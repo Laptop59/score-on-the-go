@@ -1,11 +1,13 @@
 #include <SDL3_image/SDL_image.h>
 #include <memory>
+
 #include "texture_library.h"
 
-TextureLibrary::TextureLibrary(SDL_Renderer* renderer)
+TextureLibrary::TextureLibrary(SDL_Renderer* renderer, std::filesystem::path basePath)
 {
     // Fetch the renderer.
     this->renderer = renderer;
+    this->basePath = basePath;
 }
 
 void TextureLibrary::loadTextures()
@@ -30,7 +32,7 @@ TextureLibrary::~TextureLibrary()
 bool TextureLibrary::loadTexture(SDL_Texture** texture, const char* path)
 {
     // Try to get a SDL_Texture.
-    SDL_Texture* tex = IMG_LoadTexture(this->renderer, path);
+    SDL_Texture* tex = IMG_LoadTexture(this->renderer, (this->basePath / path).string().c_str());
     if (tex)
     {
         *texture = tex;

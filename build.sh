@@ -1,2 +1,3 @@
 #!/bin/bash
-cmake -S . -B build
+cd "${0%/*}"/
+cmake -B "build/`uname`" -S .
