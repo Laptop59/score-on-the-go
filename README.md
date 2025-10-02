@@ -9,10 +9,6 @@ This editor allows interactive editing of
 
 To learn more about the keybinds in this program, press `F1` once to open a list of actions with the keyboard.
 
-No binary releases will be provided to you as of now;
-you must be able to compile this app along with the SDL3 libraries to start using the app.
-This app currently uses a bleeding-edge version of `sdl3_mixer` not actually released yet from GitHub.
-
 Be aware that bugs and glitches may exist in this application but the editor is in a mostly-usable state.
 
 # Compiling the project
@@ -21,8 +17,23 @@ Run the following once to compile the program with its source code:
 ```
 git clone https://github.com/Laptop59/score-on-the-go --depth=1 --recurse-submodules
 cd sdl3-sample
-./build.sh
+
+## From here, choose your appropriate script:
+# For Windows
+build_windows.bat
+# For native platforms
+./build_generic.sh
+# For the web (Unix)
+./build_web_unix.sh
+# For the web (Windows)
+build_web_windows.bat
 ```
+- For the web, make sure to install the `emsdk` and make it accessiblt to the terminal: https://emscripten.org/docs/getting_started/downloads.html
+- For native platforms and for Windows, you can replace `build` with `test` to also open the built executable. This is preferable for testing some new code.
+
+> **NOTE:** I have only tested the `generic` and `unix` scripts (so take the rest with a grain of salt!)
+
+Run `update_sdl.sh` to update the SDL modules in the project.
 
 ## Using with Scratch project
 The following tutorials cover the basics.

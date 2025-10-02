@@ -149,6 +149,8 @@ elseif(EMSCRIPTEN)
         "-lidbfs.js"
         # Supply our own HTML page.
         "--shell-file" "${CMAKE_CURRENT_LIST_DIR}/shell.html"
+        # Loading music can exceed the limit of memory arrays.
+        "-sALLOW_MEMORY_GROWTH"
     )
 
 else()

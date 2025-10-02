@@ -1,11 +1,13 @@
 #!/bin/bash
 cd "${0%/*}"
 
+# We need the mpg123 port.
 emcmake cmake -S .. -B ../build/web -DCMAKE_C_FLAGS="-sUSE_MPG123=1" -DCMAKE_CXX_FLAGS="-sUSE_MPG123=1"
 
 cd "../build/web" || return
 emmake make 
 
+# Move the resultant files into the Release folder.
 mkdir -p Release
 mv -f score-on-the-go.html Release/index.html
 mv -f score-on-the-go.js Release/score-on-the-go.js

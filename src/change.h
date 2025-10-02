@@ -88,24 +88,24 @@ struct PaddleDualChange
     double beat;
     bool enabled;
 
-    bool operator<(PaddleDualChange other)
+    friend bool operator<(const PaddleDualChange lhs, const PaddleDualChange rhs)
     {
-        return beat < other.beat;
+        return lhs.beat < rhs.beat;
     }
 
-    bool operator>(PaddleDualChange other)
+    friend bool operator>(const PaddleDualChange lhs, const PaddleDualChange rhs)
     {
-        return beat > other.beat;
+        return lhs.beat > rhs.beat;
     }
 
-    bool operator<=(PaddleDualChange other)
+    friend bool operator<=(const PaddleDualChange lhs, const PaddleDualChange rhs)
     {
-        return beat <= other.beat;
+        return lhs.beat <= rhs.beat;
     }
 
-    bool operator>=(PaddleDualChange other)
+    friend bool operator>=(const PaddleDualChange lhs, const PaddleDualChange rhs)
     {
-        return beat >= other.beat;
+        return lhs.beat >= rhs.beat;
     }
 };
 

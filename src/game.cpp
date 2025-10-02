@@ -1109,10 +1109,11 @@ void Game::showOpenFileDialog(FileDataCallback callback, void *userdata, SDL_Win
                 reader.onload = function() {
                     try {
                         var arrayBuffer = reader.result;
+                        var data = new Uint8Array(arrayBuffer);
                         // allocate memory
-                        var ptr = js_SDL_malloc(arrayBuffer.length);
-                        Module.HEAPU8.set(arrayBuffer, ptr);
-                        done(ptr, arrayBuffer.length);
+                        var ptr = js_SDL_malloc(data.byteLength);
+                        Module.HEAPU8.set(data, ptr);
+                        done(ptr, data.byteLength);
                     } catch(e) {
                         console.error("Could not read file: ", e);
                         return_null_ptr();
@@ -1466,7 +1467,7 @@ void Game::callbackLoadMusicPicker(void* userdata, void* contents, int filter, s
     game->filePickerOpen = false;
     if (contents == NULL) return;
     // Load the music.
-    MIX_Audio* music = MIX_LoadAudio_IO(game->mixer, SDL_IOFromMem(contents, sizeInBytes), true, true);
+    MIX_Audio* music = MIX_LoadAudio_IO(game->mixer, SDL_IOFromMem(contents, sizeInBytes), false, true);
 
     if (music == NULL)
     {
@@ -1480,74 +1481,6 @@ void Game::callbackLoadMusicPicker(void* userdata, void* contents, int filter, s
         MIX_DestroyAudio(game->music);
     }
     game->music = music;
-
-    SDL_free(contents);
-}
-
-void SDLCALL Game::callbackLoadBallfilePicker(void* userdata, void* contents, int filter, size_t sizeInBytes)
-{
-    // Userdata is our game object.
-    Game* game = (Game*) userdata;
-    game->filePickerOpen = false;
-    if (contents == NULL) return;
-    char* text = (char *) contents;
-    SerializerResult result = game->serializer->readBallfile(text, sizeInBytes);
-    
-    if (std::holds_alternative<SerializerSuccess>(result))
-    {
-        SerializerSuccess success = std::get<SerializerSuccess>(result);
-
-        game->balls.clear();
-        for (auto ball = success.balls.begin(); ball < success.balls.end(); ++ball)
-            game->addBall(*ball);
-
-        game->bpmChanges.clear();
-        for (const auto& bpmChange : success.bpmChanges)
-            game->addBpmChange(bpmChange);
-
-        game->paddleWidthChanges.clear();
-        for (const auto& paddleWidthChange : success.paddleWidthChanges)
-            game->addPaddleWidthChange(paddleWidthChange);
-
-        game->paddleSpeedChanges.clear();
-        for (const auto& paddleSpeedChange : success.paddleSpeedChanges)
-            game->addPaddleSpeedChange(paddleSpeedChange);
-
-                game->paddleDualChanges.clear();
-                for (const auto& paddleDualChanges : success.paddleDualChanges)
-                    game->addPaddleDualChange(paddleDualChanges);
-
-        game->commands.clear();
-
-        std::string successMessage = std::string("Successfully loaded a ball file with ");
-        successMessage += std::to_string(success.balls.size());
-        successMessage += " balls.";
-        SDL_ShowSimpleMessageBox(
-            SDL_MESSAGEBOX_INFORMATION,
-            NAME,
-            successMessage.c_str(),
-            game->window
-        );
-    }
-    else if (std::holds_alternative<SerializerFailure>(result))
-    {
-        SerializerFailure failure = std::get<SerializerFailure>(result);
-        std::string failMessage = std::string("Could not load the ballfile.");
-        failMessage += "\n[ERRORS: " + std::to_string(failure.errors.size()) + "]";
-        size_t errorsLeft = 16;
-        for (auto error = failure.errors.begin(); error < failure.errors.end(); ++error)
-        {
-            failMessage += "\nAt line " + std::to_string(error->line) + ": " + error->error; 
-            if (!--errorsLeft) break;
-        }
-
-        SDL_ShowSimpleMessageBox(
-            SDL_MESSAGEBOX_ERROR,
-            NAME,
-            failMessage.c_str(),
-            game->window
-        );
-    }
 
     SDL_free(contents);
 }
@@ -1619,7 +1552,6 @@ void Game::callbackLoadBallfilePicker(void* userdata, void* contents, int filter
 
     SDL_free(contents);
 }
-
 
 std::optional<GameplayLeftPosition> Game::ballCanBePlaced()
 {
