@@ -63,7 +63,7 @@ endif()
 # Set C++ version
 target_compile_features(${EXECUTABLE_NAME} PUBLIC cxx_std_20)
 
-# on Web targets, we need CMake to generate a HTML webpage. 
+# on Web targets, we need CMake to generate a HTML webpage.
 if(EMSCRIPTEN)
 	set(CMAKE_EXECUTABLE_SUFFIX ".html" CACHE INTERNAL "")
 endif()
@@ -142,7 +142,13 @@ elseif(EMSCRIPTEN)
         "--preload-file \"${CMAKE_CURRENT_LIST_DIR}/resources@/resources\""
     )
     target_link_options(${EXECUTABLE_NAME} PRIVATE
-        "-sEXPORTED_RUNTIME_METHODS=[\"cwrap\",\"ccall\",\"stringToUTF8\",\"lengthBytesUTF8\"]"
+        # Export some C functions to JS.
+        "-sEXPORTED_FUNCTIONS=[\"_SDL_malloc\",\"_main\",\"_Game_loadPrefs\"]"
+        "-sEXPORTED_RUNTIME_METHODS=[\"cwrap\",\"ccall\",\"stringToUTF8\",\"lengthBytesUTF8\",\"HEAPU8\",\"requestFullscreen\"]"
+        # Include lidbfs.js for IDBFS (virtual filesystem for preferences.)
+        "-lidbfs.js"
+        # Supply our own HTML page.
+        "--shell-file" "${CMAKE_CURRENT_LIST_DIR}/shell.html"
     )
 
 else()

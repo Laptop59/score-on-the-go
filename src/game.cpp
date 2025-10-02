@@ -3,14 +3,9 @@
 #ifdef __EMSCRIPTEN__
     #include <emscripten.h>
 
-    EM_JS(int, _malloc, (int size), {
-        return ccall('malloc', 'number', ['number'], [size]);
+    EM_JS(void*, js_SDL_malloc, (size_t size), {
+        return ccall('SDL_malloc', 'number', ['number'], [size]);
     });
-
-    EM_JS(void, _free, (int ptr), {
-        ccall('free', null, ['number'], [ptr]);
-    });
-
 #endif
 
 #include <SDL3/SDL_render.h>
@@ -43,7 +38,7 @@ Game::Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font*
     this->track = MIX_CreateTrack(mixer);
     this->music = nullptr;
 
-    loadPrefs();
+    beforePrefs(true);
 }
 
 Game::~Game()
@@ -999,10 +994,9 @@ void Game::drawEditorBalls(float endY)
         this->drawGhostBall(); // Draw it if it hasn't been drawn already.
 }
 
-void Game::showOpenFileDialog(SDL_DialogFileCallback callback, void *userdata, SDL_Window *window, const SDL_DialogFileFilter *filters, int nfilters, const char *default_location, bool allow_many)
-{
-    static uint32_t fileIndex = 0;
 
+void Game::showOpenFileDialog(FileDataCallback callback, void *userdata, SDL_Window *window, const SDL_DialogFileFilter *filters, int nfilters, const char *default_location, bool allow_many)
+{
     #ifdef __EMSCRIPTEN__
         EM_ASM({
             var callbackPtr = $0;
@@ -1011,9 +1005,7 @@ void Game::showOpenFileDialog(SDL_DialogFileCallback callback, void *userdata, S
             var filtersPtr = $3;
             var nfilters = $4;
             var allowMany = $5;
-
             var voidPtrSize = $6;
-            var fileIndexPtr = $7;
 
             var input = document.createElement('input');
             input.multiple = allowMany;
@@ -1043,49 +1035,170 @@ void Game::showOpenFileDialog(SDL_DialogFileCallback callback, void *userdata, S
                 }
             }
 
+            input.oncancel = return_null_ptr;
             input.onchange = function(e) {
-                var pathPtrs = [];
-                for (var file of e.target.files) {
-                    // Return fake paths
-                    var v = getValue(fileIndexPtr, 'i32');
-                    var fakepath = 'content://sotgtempfile/' + (v >>> 0); // make it unsigned
-                    setValue(fileIndexPtr, (v + 1) >>> 0, 'i32');
-                    var len = lengthBytesUTF8(fakepath) + 1;
-                    var allocatedPath = _malloc(len);
-                    stringToUTF8(fakepath, allocatedPath, len);
-                    pathPtrs.push(allocatedPath);
+                var file = e.target.files[0];
+                if (!file) {
+                    return_null_ptr();
+                    return;
                 }
-                var pathsPtr = _malloc((pathPtrs.length + 1) * voidPtrSize);
-                for (var i = 0; i < pathPtrs.length; i++) {
-                    setValue(pathsPtr + i * voidPtrSize, pathPtrs[i], '*');
-                }
-                setValue(pathsPtr + pathPtrs.length * voidPtrSize, 0, '*'); // NULL
-
-                // Calling function dynamically
-                dynCall(
-                    'vppi',
-                    getFunctionPtrIndex(Module.addFunction(callbackPtr, 'vppi'))
-                    [userdataPtr, pathsPtr, -1]
-                );
-
-                for (var ptr of pathPtrs) _free(ptr);
-                _free(pathsPtr);
+                var reader = new FileReader();
+                reader.onload = function() {
+                    try {
+                        var arrayBuffer = reader.result;
+                        // allocate memory
+                        var ptr = js_SDL_malloc(arrayBuffer.length);
+                        Module.HEAPU8.set(arrayBuffer, ptr);
+                        done(ptr, arrayBuffer.length);
+                    } catch(e) {
+                        console.error("Could not read file: ", e);
+                        return_null_ptr();
+                    }
+                };
+                reader.onerror = return_null_ptr;
+                reader.readAsArrayBuffer(file);
             };
             input.click();
-        }, callback, userdata, window, filters, nfilters, allow_many, sizeof(void*), &fileIndex);
+
+            function return_null_ptr() {
+                done(0, 0);
+            }
+
+            function done(sdlResultPtr, sizeInBytes) {
+                // call callback
+                wasmTable.get(callbackPtr)(userdataPtr, sdlResultPtr, -1, sizeInBytes);
+            }
+        }, callback, userdata, window, filters, nfilters, allow_many, sizeof(void*));
     #else
-        SDL_ShowOpenFileDialog(callback, userdata, window, filters, nfilters, default_location, allow_many);
+        // Userdata is our game object.
+        UserdataWrapper* wrapper = new UserdataWrapper {callback, NULL, userdata, this};
+        SDL_ShowOpenFileDialog(&Game::showOpenFileDialogNormal, wrapper, window, filters, nfilters, default_location, allow_many);
     #endif
 }
 
-void Game::showSaveFileDialog(SDL_DialogFileCallback callback, void *userdata, SDL_Window *window, const SDL_DialogFileFilter *filters, int nfilters, const char *default_location)
+void SDLCALL Game::showOpenFileDialogNormal(void* userdata, const char* const* filelist, int filter)
+{
+    // Unwrap the wrapper.
+    UserdataWrapper* wrapper = (UserdataWrapper*) userdata;
+    FileDataCallback callback = wrapper->callback;
+    void* actualUserdata = wrapper->userdata;
+    char* fileContent = NULL;
+    size_t sizeInBytes = 0;
+
+    if (!filelist)
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Load File Picker: %s", SDL_GetError());
+    }
+    else if (*filelist)
+    {
+        // Get the first item (we don't care about the other ones)
+        const char* file = *filelist;
+
+        // Read from the file.
+        void* contents = SDL_LoadFile(file, &sizeInBytes);
+
+        if (contents)
+        {
+            fileContent = (char*) contents;
+        }
+        else
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_ERROR, "SDL Error Loading File: %s", SDL_GetError());
+        }
+    }
+
+    callback(actualUserdata, fileContent, filter, sizeInBytes);
+
+    delete wrapper;
+}
+
+void Game::showSaveFileDialog(FileDataSaveCallback callback, void *userdata, SDL_Window *window, const SDL_DialogFileFilter *filters, int nfilters, const char *default_location)
 {
     #ifdef __EMSCRIPTEN__
-
+        callback(userdata, NULL, 0);
     #else
-        SDL_ShowSaveFileDialog(callback, userdata, window, filters, nfilters, default_location);
+        UserdataWrapper wrapper = {NULL, callback, userdata, this};
+        SDL_ShowSaveFileDialog(&Game::showSaveFileDialogNormal, userdata, window, filters, nfilters, default_location);
     #endif
 }
+
+void SDLCALL Game::showSaveFileDialogNormal(void* userdata, const char* const* filelist, int filter)
+{
+    // Unwrap the wrapper.
+    UserdataWrapper* wrapper = (UserdataWrapper*) userdata;
+    FileDataSaveCallback callback = wrapper->saveCallback;
+    void* actualUserdata = wrapper->userdata;
+    char* fileContent = NULL;
+
+    if (!filelist)
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Save File Picker: %s", wrapper->game->lastError.c_str());
+    }
+    else if (*filelist)
+    {
+        // Get the first item (we don't care about the other ones)
+        const char* fileContent = *filelist;
+    }
+
+    callback(actualUserdata, fileContent, filter);
+}
+
+bool Game::trySaveFile(const char *file, const void *data, size_t datasize, const char *defaultFileName)
+{
+    #ifdef __EMSCRIPTEN__
+        char* error = (char*) EM_ASM_PTR({
+            var defFileNamePtr = $0;
+            var dataPtr = $1;
+            var dataSize = $2;
+
+            // Make the user download the file.
+            try {
+                var arrayBuffer = Module.HEAPU8.subarray(dataPtr, dataPtr + dataSize);
+                var link = document.createElement('a');
+                var blob = new Blob([arrayBuffer]);
+                link.href = URL.createObjectURL(blob);
+                var defaultFileNameStr = UTF8ToString(defFileNamePtr);
+                var customFileName = window.prompt('Enter the name you want to download your file as:', defaultFileNameStr);
+                if (!customFileName) {
+                    throw 'cancelled';
+                }
+                link.download = customFileName;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(link.href);
+                return 0; // NULL
+            } catch (e) {
+                try {
+                    // Allocate some memory on the stack
+                    var string = e.toString();
+                    var len = lengthBytesUTF8(string) + 1;
+                    var ptr = js_SDL_malloc(len);
+                    stringToUTF8(string, ptr, len);
+                    return ptr;
+                } catch (e2) {
+                    return 0; // out of memory? this should not happen
+                }
+            }
+        }, defaultFileName, (char*) data, datasize);
+
+        // if NULL, successful.
+        bool returnedBool = true;
+        if (error) {
+            returnedBool = false;
+            this->lastError.assign(error);
+            SDL_free(error);
+        }
+        return returnedBool;
+    #else
+        bool success = SDL_SaveFile(file, data, datasize);
+        if (!success) {
+            this->lastError.assign(SDL_GetError());
+        }
+        return success;
+    #endif
+}
+
 
 void Game::openLoadBallFilePicker()
 {
@@ -1170,264 +1283,199 @@ void Game::openSaveCommandsPicker()
     );
 }
 
-void SDLCALL Game::callbackSaveBallfilePicker(void* userdata, const char* const* filelist, int filter)
+void Game::callbackSaveBallfilePicker(void* userdata, char* path, int filter)
 {
     // Userdata is our game object.
     Game* game = (Game*) userdata;
     game->filePickerOpen = false;
-    if (!filelist)
-    {
-        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Save File Picker: %s", SDL_GetError());
-    }
-    else if (*filelist)
-    {
-        // Get the first item (we don't care about the other ones)
-        const char* file = *filelist;
 
-        // Create necessary data for saving to the file.
-        std::string text = game->serializer->saveBallfile(
-            game->balls,
-            game->bpmChanges,
-            game->paddleWidthChanges,
-            game->paddleSpeedChanges
+    // Create necessary data for saving to the file.
+    std::string text = game->serializer->saveBallfile(
+        game->balls,
+        game->bpmChanges,
+        game->paddleWidthChanges,
+        game->paddleSpeedChanges
+    );
+
+    // Attempt to save file.
+    if (game->trySaveFile(path, text.c_str(), text.length(), "ballfile.txt"))
+    {
+        SDL_ShowSimpleMessageBox(
+            SDL_MESSAGEBOX_INFORMATION,
+            NAME,
+            "Successfully saved ballfile.",
+            game->window
         );
-
-        // Attempt to save file.
-        if (SDL_SaveFile(file, text.c_str(), text.length()))
-        {
-            SDL_ShowSimpleMessageBox(
-                SDL_MESSAGEBOX_INFORMATION,
-                NAME,
-                "Successfully saved ballfile.",
-                game->window
-            );
-        }
-        else
-        {
-            std::string errorMessage = std::string("Could not save ballfile: \n") + SDL_GetError();
-            SDL_ShowSimpleMessageBox(
-                SDL_MESSAGEBOX_ERROR,
-                NAME,
-                errorMessage.c_str(),
-                game->window
-            );
-        }
     }
-}
-
-void SDLCALL Game::callbackSaveCommandsPicker(void* userdata, const char* const* filelist, int filter)
-{
-    // Userdata is our game object.
-    Game* game = (Game*) userdata;
-    game->filePickerOpen = false;
-    if (!filelist)
+    else if (game->lastError != CANCELLED)
     {
-        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Save File Picker: %s", SDL_GetError());
-    }
-    else if (*filelist)
-    {
-        // Get the first item (we don't care about the other ones)
-        const char* file = *filelist;
-
-        // Create necessary data for saving to the file.
-        std::string text = game->serializer->writeCommands(
-            game->commands
+        std::string errorMessage = std::string("Could not save ballfile: \n") + game->lastError;
+        SDL_ShowSimpleMessageBox(
+            SDL_MESSAGEBOX_ERROR,
+            NAME,
+            errorMessage.c_str(),
+            game->window
         );
-
-        // Attempt to save file.
-        if (SDL_SaveFile(file, text.c_str(), text.length()))
-        {
-            SDL_ShowSimpleMessageBox(
-                SDL_MESSAGEBOX_INFORMATION,
-                NAME,
-                "Successfully saved commands.",
-                game->window
-            );
-        }
-        else
-        {
-            std::string errorMessage = std::string("Could not save commands: \n") + SDL_GetError();
-            SDL_ShowSimpleMessageBox(
-                SDL_MESSAGEBOX_ERROR,
-                NAME,
-                errorMessage.c_str(),
-                game->window
-            );
-        }
     }
 }
 
-void SDLCALL Game::callbackLoadCommandsPicker(void* userdata, const char* const* filelist, int filter)
+void Game::callbackSaveCommandsPicker(void* userdata, char* path, int filter)
 {
     // Userdata is our game object.
     Game* game = (Game*) userdata;
     game->filePickerOpen = false;
-    if (!filelist)
+    // Get the first item (we don't care about the other ones)
+
+    // Create necessary data for saving to the file.
+    std::string text = game->serializer->writeCommands(
+        game->commands
+    );
+
+    // Attempt to save file.
+    if (game->trySaveFile(path, text.c_str(), text.length(), "commands.bgc"))
     {
-        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Load File Picker: %s", SDL_GetError());
+        SDL_ShowSimpleMessageBox(
+            SDL_MESSAGEBOX_INFORMATION,
+            NAME,
+            "Successfully saved commands.",
+            game->window
+        );
     }
-    else if (*filelist)
+    else if (game->lastError != CANCELLED)
     {
-        // Get the first item (we don't care about the other ones)
-        const char* file = *filelist;
-
-        // Read from the file.
-        size_t sizeInBytes;
-        void* contents = SDL_LoadFile(file, &sizeInBytes);
-
-        if (contents)
-        {
-            char* text = (char *) contents;
-            std::vector<Command> result = game->serializer->readCommands(text, sizeInBytes);
-
-            if (result.empty())
-            {
-                SDL_ShowSimpleMessageBox(
-                    SDL_MESSAGEBOX_ERROR,
-                    NAME,
-                    "No commands could be loaded from the file - no change has been done to your existing commands.",
-                    game->window
-                );
-            }
-            else
-            {
-                game->commands.clear();
-
-                for (Command& command : result)
-                    game->commands.push_back(command);
-
-                SDL_ShowSimpleMessageBox(
-                    SDL_MESSAGEBOX_ERROR,
-                    NAME,
-                    (std::string("Successfully loaded ") + std::to_string(result.size()) + "commands.").c_str(),
-                    game->window
-                );
-            }
-            
-            SDL_free(contents);
-        }
-        else
-        {
-            SDL_LogError(SDL_LOG_CATEGORY_ERROR, "SDL Error Loading File: %s", SDL_GetError());
-        }
+        std::string errorMessage = std::string("Could not save commands: \n") + game->lastError;
+        SDL_ShowSimpleMessageBox(
+            SDL_MESSAGEBOX_ERROR,
+            NAME,
+            errorMessage.c_str(),
+            game->window
+        );
     }
 }
 
-void SDLCALL Game::callbackLoadMusicPicker(void* userdata, const char* const* filelist, int filter)
+void SDLCALL Game::callbackLoadCommandsPicker(void* userdata, void* contents, int filter, size_t sizeInBytes)
 {
     // Userdata is our game object.
     Game* game = (Game*) userdata;
     game->filePickerOpen = false;
-    if (!filelist)
+    if (contents == NULL) return;
+    std::vector<Command> result = game->serializer->readCommands((char *) contents, sizeInBytes);
+    if (result.empty())
     {
-        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Load Music Picker: %s", SDL_GetError());
+        SDL_ShowSimpleMessageBox(
+            SDL_MESSAGEBOX_ERROR,
+            NAME,
+            "No commands could be loaded from the file - no change has been done to your existing commands.",
+            game->window
+        );
     }
-    else if (*filelist)
+    else
     {
-        // Get the first item (we don't care about the other ones)
-        const char* file = *filelist;
+        game->commands.clear();
 
-        // Load the music.
-        MIX_Audio* music = MIX_LoadAudio(game->mixer, file, true);
+        for (Command& command : result)
+            game->commands.push_back(command);
 
-        if (music == NULL)
-        {
-            SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Loading Music: %s", SDL_GetError());
-            return;
-        }
-
-        // Free the existing music.
-        if (game->music != NULL)
-        {
-            MIX_DestroyAudio(game->music);
-        }
-        game->music = music;
+        SDL_ShowSimpleMessageBox(
+            SDL_MESSAGEBOX_ERROR,
+            NAME,
+            (std::string("Successfully loaded ") + std::to_string(result.size()) + "commands.").c_str(),
+            game->window
+        );
     }
+    
+    SDL_free(contents);
 }
 
-void SDLCALL Game::callbackLoadBallfilePicker(void* userdata, const char* const* filelist, int filter)
+void SDLCALL Game::callbackLoadMusicPicker(void* userdata, void* contents, int filter, size_t sizeInBytes)
 {
     // Userdata is our game object.
     Game* game = (Game*) userdata;
     game->filePickerOpen = false;
-    if (!filelist)
+    if (contents == NULL) return;
+    // Load the music.
+    MIX_Audio* music = MIX_LoadAudio_IO(game->mixer, SDL_IOFromMem(contents, sizeInBytes), true, true);
+
+    if (music == NULL)
     {
-        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Load File Picker: %s", SDL_GetError());
+        SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Error with Loading Music: %s", SDL_GetError());
+        return;
     }
-    else if (*filelist)
+
+    // Free the existing music.
+    if (game->music != NULL)
     {
-        // Get the first item (we don't care about the other ones)
-        const char* file = *filelist;
-
-        // Read from the file.
-        size_t sizeInBytes;
-        void* contents = SDL_LoadFile(file, &sizeInBytes);
-
-        if (contents)
-        {
-            char* text = (char *) contents;
-            SerializerResult result = game->serializer->readBallfile(text, sizeInBytes);
-            
-            if (std::holds_alternative<SerializerSuccess>(result))
-            {
-                SerializerSuccess success = std::get<SerializerSuccess>(result);
-
-                game->balls.clear();
-                for (auto ball = success.balls.begin(); ball < success.balls.end(); ++ball)
-                    game->addBall(*ball);
-
-                game->bpmChanges.clear();
-                for (const auto& bpmChange : success.bpmChanges)
-                    game->addBpmChange(bpmChange);
-
-                game->paddleWidthChanges.clear();
-                for (const auto& paddleWidthChange : success.paddleWidthChanges)
-                    game->addPaddleWidthChange(paddleWidthChange);
-
-                game->paddleSpeedChanges.clear();
-                for (const auto& paddleSpeedChange : success.paddleSpeedChanges)
-                    game->addPaddleSpeedChange(paddleSpeedChange);
-
-                game->commands.clear();
-
-                std::string successMessage = std::string("Successfully loaded a ball file with ");
-                successMessage += std::to_string(success.balls.size());
-                successMessage += " balls.";
-                SDL_ShowSimpleMessageBox(
-                    SDL_MESSAGEBOX_INFORMATION,
-                    NAME,
-                    successMessage.c_str(),
-                    game->window
-                );
-            }
-            else if (std::holds_alternative<SerializerFailure>(result))
-            {
-                SerializerFailure failure = std::get<SerializerFailure>(result);
-                std::string failMessage = std::string("Could not load the ballfile.");
-                failMessage += "\n[ERRORS: " + std::to_string(failure.errors.size()) + "]";
-                size_t errorsLeft = 16;
-                for (auto error = failure.errors.begin(); error < failure.errors.end(); ++error)
-                {
-                    failMessage += "\nAt line " + std::to_string(error->line) + ": " + error->error; 
-                    if (!--errorsLeft) break;
-                }
-
-                SDL_ShowSimpleMessageBox(
-                    SDL_MESSAGEBOX_ERROR,
-                    NAME,
-                    failMessage.c_str(),
-                    game->window
-                );
-            }
-            
-            SDL_free(contents);
-        }
-        else
-        {
-            SDL_LogError(SDL_LOG_CATEGORY_ERROR, "SDL Error Loading File: %s", SDL_GetError());
-        }
+        MIX_DestroyAudio(game->music);
     }
+    game->music = music;
+
+    SDL_free(contents);
 }
+
+void SDLCALL Game::callbackLoadBallfilePicker(void* userdata, void* contents, int filter, size_t sizeInBytes)
+{
+    // Userdata is our game object.
+    Game* game = (Game*) userdata;
+    game->filePickerOpen = false;
+    if (contents == NULL) return;
+    char* text = (char *) contents;
+    SerializerResult result = game->serializer->readBallfile(text, sizeInBytes);
+    
+    if (std::holds_alternative<SerializerSuccess>(result))
+    {
+        SerializerSuccess success = std::get<SerializerSuccess>(result);
+
+        game->balls.clear();
+        for (auto ball = success.balls.begin(); ball < success.balls.end(); ++ball)
+            game->addBall(*ball);
+
+        game->bpmChanges.clear();
+        for (const auto& bpmChange : success.bpmChanges)
+            game->addBpmChange(bpmChange);
+
+        game->paddleWidthChanges.clear();
+        for (const auto& paddleWidthChange : success.paddleWidthChanges)
+            game->addPaddleWidthChange(paddleWidthChange);
+
+        game->paddleSpeedChanges.clear();
+        for (const auto& paddleSpeedChange : success.paddleSpeedChanges)
+            game->addPaddleSpeedChange(paddleSpeedChange);
+
+        game->commands.clear();
+
+        std::string successMessage = std::string("Successfully loaded a ball file with ");
+        successMessage += std::to_string(success.balls.size());
+        successMessage += " balls.";
+        SDL_ShowSimpleMessageBox(
+            SDL_MESSAGEBOX_INFORMATION,
+            NAME,
+            successMessage.c_str(),
+            game->window
+        );
+    }
+    else if (std::holds_alternative<SerializerFailure>(result))
+    {
+        SerializerFailure failure = std::get<SerializerFailure>(result);
+        std::string failMessage = std::string("Could not load the ballfile.");
+        failMessage += "\n[ERRORS: " + std::to_string(failure.errors.size()) + "]";
+        size_t errorsLeft = 16;
+        for (auto error = failure.errors.begin(); error < failure.errors.end(); ++error)
+        {
+            failMessage += "\nAt line " + std::to_string(error->line) + ": " + error->error; 
+            if (!--errorsLeft) break;
+        }
+
+        SDL_ShowSimpleMessageBox(
+            SDL_MESSAGEBOX_ERROR,
+            NAME,
+            failMessage.c_str(),
+            game->window
+        );
+    }
+
+    SDL_free(contents);
+}
+
 
 std::optional<GameplayLeftPosition> Game::ballCanBePlaced()
 {
@@ -3321,17 +3369,69 @@ double Game::getBeatFromSignedYPos(float yPos, float speed)
     return differenceInBeats + beat;
 }
 
+bool Game::beforePrefs(bool initFS)
+{
+    #ifdef __EMSCRIPTEN__
+        // Use Emscripten's IndexedDB (with IDBFS).
+        int success = EM_ASM_INT({
+            var initFS = $0;
+            if (initFS) {
+                // Make a directory other than '/' (in this case, we use /offline).
+                FS.mkdir('/offline');
+                // Mount with IDBFS type.
+                FS.mount(IDBFS, {autoPersist: true}, '/offline');
+            }
+
+            // Sync.
+            FS.syncfs(true, function (err) {
+                if (err !== null) console.error('Could not sync preferences (before): ' + err);
+
+                if (initFS) {
+                    var gamePtr = $1;
+                    // call the C wrapper using ccall
+                    Module.ccall(
+                        'Game_loadPrefs',
+                        null,
+                        ['number'],
+                        [gamePtr]
+                    );
+                    // We should show the game canvas as well.
+                    canvasElement.className = "emscripten";
+                    // We should show the Fullscreen button.
+                    fullscreenElement.hidden = false;
+                    emfsElement.className = "emscripten emscripten_fullscreen";
+                    // Hide the 'status'.
+                    statusElement.hidden = true;
+                    initElement.remove();
+                }
+            });
+            return 1;
+        }, initFS, this);
+        if (success == 0) return false;
+        // We can now store our files! Just set prefPath to use our mounted directory.
+        this->prefPath = "/offline/";
+    #else
+        char* path = SDL_GetPrefPath(ORG, NAME);
+        this->prefPath = std::string(path);
+        if (!path || prefPath.empty()) {
+            SDL_free(path);
+            return false;
+        }
+        SDL_free(path);
+    #endif
+    return true;
+}
+
 bool Game::savePrefs()
 {
-    char* prefPath = SDL_GetPrefPath(ORG, NAME);
-    if (!prefPath) return false;
-
     // Now we can create a text file for preferences.
-    std::string filePath = std::string(prefPath) + "prefs.bin";
-    SDL_free(prefPath);
+    std::string filePath = prefPath + "prefs.bin";
 
     std::ofstream out(filePath, std::ios::binary);
-    if (!out) return false;
+    if (!out) {
+        std::cerr << "Could not save prefs.bin.";
+        return false;
+    }
 
     std::vector<float> floats;
     floats.push_back(beatLinesOffset);
@@ -3348,18 +3448,25 @@ bool Game::savePrefs()
 
 bool Game::loadPrefs()
 {
-
-    char* prefPath = SDL_GetPrefPath(ORG, NAME);
-    if (!prefPath) {
-        return false;
-    }
-
-    std::string filePath = std::string(prefPath) + "prefs.bin";
-    SDL_free(prefPath);
+    std::string filePath = prefPath + "prefs.bin";
 
     std::ifstream in(filePath, std::ios::binary);
-    if (!in) {
-        std::cerr << "Failed to open " << filePath << " for reading\n";
+    if (!in.is_open()) {
+        std::cerr << "Error opening preferences: "
+             << std::endl;
+
+        // Check for specific error conditions
+        if (in.bad()) {
+            std::cerr << "Fatal error: badbit is set." << std::endl;
+        }
+
+        if (in.fail()) {
+            // Print a more detailed error message using
+            // strerror
+            std::cerr << "Error details: " << strerror(errno)
+                 << std::endl;
+        }
+
         return false;
     }
 

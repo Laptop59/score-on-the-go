@@ -1,0 +1,208 @@
+<!doctype html>
+<!-- This shell is for the web version of Score on the Go. Derived from Emscripten's built-in shell. -->
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Emscripten-Generated Code</title>
+    <style>
+
+      html {height: 100%;}
+
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        height: 100%;
+      }
+
+      div#main {
+        background: repeating-linear-gradient(
+          45deg,
+          #f3f3f3 0,
+          #fafafa 100px,
+          #ffffff 200px
+        );
+        height: 100%;
+      }
+
+      input[type=button] {
+        background-color: rgba(0, 0, 0, 0.3);
+        border: 2px solid rgba(255, 255, 255, 0.5);
+        color: white;
+        border-radius: 4px;
+        font-size: large;
+      }
+
+      .emscripten {
+        padding-right: 0; margin-left: auto; margin-right: auto; display: block;
+      }
+
+      .emscripten_border {
+        width: 100%;
+        height: calc(100% - 48px);
+        display: flex;
+        justify-content: center; /* horizontal */
+        align-items: center;     /* vertical */
+      }
+
+      div#init {
+        margin-left: 50%;
+        width: 40px;
+        height: 100%;
+        display: flex;
+        justify-content: center; /* horizontal */
+        align-items: center;     /* vertical */
+      }
+
+      div.emscripten {
+        text-align: center;
+      }
+
+      div.emscripten_fullscreen {
+        background-color: rgba(0, 0, 0, 0.4);
+        height: 20px;
+        padding: 16px 16px;
+        margin-bottom: calc((100% - 52px - 98%) / 2);
+        border-bottom: 5px solid rgba(0, 0, 0, 0.4);
+      }
+
+      div#status {
+        width: 40%;
+        font-weight: 400;
+        font-size: x-large;
+      }
+      
+      /* the canvas *must not* have any border or padding, or mouse coords will be wrong */
+      canvas.emscripten { border: 0px none; background-color: black; visibility: visible; }
+
+      .hidden {
+        visibility: hidden !important;
+      }
+
+      .spinner {
+        display: flex;
+        justify-content: center; /* horizontal */
+        align-items: center;     /* vertical */
+        height: 100px;
+        width: 100px;
+        margin: 0px auto;
+        -webkit-animation: rotation .8s linear infinite;
+        -moz-animation: rotation .8s linear infinite;
+        -o-animation: rotation .8s linear infinite;
+        animation: rotation 0.8s linear infinite;
+        border-left: 30px solid rgb(90, 90, 90);
+        border-right: 30px solid rgb(140, 140, 140);
+        border-bottom: 30px solid rgb(90, 90, 90);
+        border-top: 30px solid rgb(150, 150, 150);
+        border-radius: 100%;
+        background-color: rgba(30, 30, 40, 0.3);
+      }
+      @-webkit-keyframes rotation {
+        from {-webkit-transform: rotate(0deg);}
+        to {-webkit-transform: rotate(360deg);}
+      }
+      @-moz-keyframes rotation {
+        from {-moz-transform: rotate(0deg);}
+        to {-moz-transform: rotate(360deg);}
+      }
+      @-o-keyframes rotation {
+        from {-o-transform: rotate(0deg);}
+        to {-o-transform: rotate(360deg);}
+      }
+      @keyframes rotation {
+        from {transform: rotate(0deg);}
+        to {transform: rotate(360deg);}
+      }
+
+    </style>
+  </head>
+  <body><div id="main">
+    <div id="init">
+      <figure style="overflow:visible;" id="spinner"><div class="spinner"></div><center style="margin-top:0.5em"><strong></strong></center></figure>
+      <div class="emscripten" id="status">Downloading...</div>
+    </div>
+    <div class="emscripten" id="emfs">
+      <progress value="0" max="100" id="progress" hidden=1></progress>
+      <input type="button" value="Fullscreen" id="fullscreen" hidden onclick="Module.requestFullscreen(false, true)">
+    </div>
+    <div class="emscripten_border">
+      <canvas class="emscripten hidden" id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
+    </div>
+    
+    <script type='text/javascript'>
+      var statusElement = document.getElementById('status');
+      var progressElement = document.getElementById('progress');
+      var spinnerElement = document.getElementById('spinner');
+      var canvasElement = document.getElementById('canvas');
+      var outputElement = document.getElementById('output');
+      if (outputElement) outputElement.value = ''; // clear browser cache
+      var fullscreenElement = document.getElementById('fullscreen');
+      var emfsElement = document.getElementById('emfs');
+      var initElement = document.getElementById('init');
+
+      // As a default initial behavior, pop up an alert when webgl context is lost. To make your
+      // application robust, you may want to override this behavior before shipping!
+      // See http://www.khronos.org/registry/webgl/specs/latest/1.0/#5.15.2
+      canvasElement.addEventListener("webglcontextlost", (e) => {
+        alert('WebGL context lost. You will need to reload the page.');
+        e.preventDefault();
+      }, false);
+
+      var Module = {
+        print(...args) {
+          // These replacements are necessary if you render to raw HTML
+          //text = text.replace(/&/g, "&amp;");
+          //text = text.replace(/</g, "&lt;");
+          //text = text.replace(/>/g, "&gt;");
+          //text = text.replace('\n', '<br>', 'g');
+          console.log(...args);
+          if (outputElement) {
+            var text = args.join(' ');
+            outputElement.value += text + "\n";
+            outputElement.scrollTop = outputElement.scrollHeight; // focus on bottom
+          }
+        },
+        canvas: canvasElement,
+        setStatus(text) {
+          if (!Module.setStatus.last) Module.setStatus.last = { time: Date.now(), text: '' };
+          if (text === Module.setStatus.last.text) return;
+          var m = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
+          var now = Date.now();
+          if (m && now - Module.setStatus.last.time < 30) return; // if this is a progress update, skip it if too soon
+          Module.setStatus.last.time = now;
+          Module.setStatus.last.text = text;
+          if (m) {
+            text = m[1];
+            progressElement.value = parseInt(m[2])*100;
+            progressElement.max = parseInt(m[4])*100;
+            progressElement.hidden = false;
+            spinnerElement.hidden = false;
+          } else {
+            progressElement.value = null;
+            progressElement.max = null;
+            progressElement.hidden = true;
+            if (!text) spinnerElement.hidden = true;
+          }
+          statusElement.innerHTML = text;
+        },
+        totalDependencies: 0,
+        monitorRunDependencies(left) {
+          this.totalDependencies = Math.max(this.totalDependencies, left);
+          Module.setStatus(left ? 'Preparing... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : 'All downloads complete.');
+        }
+      };
+      Module.setStatus('Downloading...');
+      window.onerror = () => {
+        Module.setStatus('Exception thrown, see JavaScript console');
+        spinnerElement.style.display = 'none';
+        Module.setStatus = (text) => {
+          if (text) console.error('[post-exception status] ' + text);
+        };
+      };
+    </script>
+    {{{ SCRIPT }}}
+  </div>
+  </body>
+</html>

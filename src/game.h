@@ -84,8 +84,19 @@ constexpr static double DEFAULT_BPM = 120.0;
 // Unit worth of a relative font size.
 const float UNIT_FONT_SIZE = 0.5f;
 
+// Special error string returned when the user rejects an action.
+const static std::string CANCELLED = "cancelled";
+
 // Number of minibeats between each long ball node. Affects gameplay.
 const minibeat LONG_BALL_NODE_SPACING = (minibeat) (MINIBEATS_PER_BEAT * 0.25);
+
+// A platform-independent callback similar to `SDL_DialogFileCallback`, but gives file data instead of file paths. These callbacks
+// should set the appropriate variables and `SDL_free(contents)`.
+typedef void (*FileDataCallback)(void *userdata, void* contents, int filter, size_t sizeInBytes);
+
+// A platform-independent callback similar to `SDL_DialogFileCallback`, but gives file data instead of file paths, and does not have a size parameter. These callbacks
+// should set the appropriate variables.
+typedef void (*FileDataSaveCallback)(void *userdata, char* path, int filter);
 
 // Specifies how text is aligned.
 enum TextAlignment
@@ -202,7 +213,6 @@ enum SelectedPlacableBall
     NORMAL      = 0x00,
 };
 
-
 /*
  * Structure representing a ball flash, after a ball is hit by the paddle.
  */
@@ -216,7 +226,7 @@ struct BallFlash
 
 /*
  * Structure used for a macro for easily drawing text lines in the renderer.
-*/
+ */
 struct DTL_State
 {
     float x;
@@ -401,6 +411,12 @@ class Game
         // Selected point.
         std::optional<std::vector<BallTypeTailPoint>::iterator> selectedPoint;
 
+        // Last error occured (for certain actions like saving files)
+        std::string lastError;
+
+        // The beginning of the preferences path.
+        std::string prefPath;
+
         // Whether the point should be cloned.
         bool shouldClonePoint;
 
@@ -453,10 +469,19 @@ class Game
         void drawEditorBalls(float endY);
 
         // Open a open file dialog and call the callback after it has been closed.
-        static void showOpenFileDialog(SDL_DialogFileCallback callback, void *userdata, SDL_Window *window, const SDL_DialogFileFilter *filters, int nfilters, const char *default_location, bool allow_many);
+        void showOpenFileDialog(FileDataCallback callback, void *userdata, SDL_Window *window, const SDL_DialogFileFilter *filters, int nfilters, const char *default_location, bool allow_many);
+
+        // Normal handler for opening file dialog.
+        static void SDLCALL showOpenFileDialogNormal(void *userdata, const char *const *filelist, int filter);
+
+        // Normal handler for saving file dialog.
+        static void SDLCALL showSaveFileDialogNormal(void* userdata, const char* const* filelist, int filter);
 
         // Open a save file dialog and call the callback after it has been closed.
-        static void showSaveFileDialog(SDL_DialogFileCallback callback, void *userdata, SDL_Window *window, const SDL_DialogFileFilter *filters, int nfilters, const char *default_location);
+        void showSaveFileDialog(FileDataSaveCallback callback, void *userdata, SDL_Window *window, const SDL_DialogFileFilter *filters, int nfilters, const char *default_location);
+
+        // Common function to save a file for any platform. Returns the same as `SDL_SaveFile()`, and sets an error message if necessary.
+        bool trySaveFile(const char *file, const void *data, size_t datasize, const char *defaultFileName);
 
         // Checks whether a 'ball' is fast enough to have a thunderbolt symbol.
         bool isFast(float ballSpeed);
@@ -555,19 +580,19 @@ class Game
         void moveTimesDivisor(float direction);
 
         // Callback for opening-a-file picker.
-        static void SDLCALL callbackLoadBallfilePicker(void* userdata, const char* const* filelist, int filter);
+        static void callbackLoadBallfilePicker(void* userdata, void* contents, int filter, size_t sizeInBytes);
 
         // Callback for saving-a-file picker.
-        static void SDLCALL callbackSaveBallfilePicker(void* userdata, const char* const* filelist, int filter);
+        static void callbackSaveBallfilePicker(void* userdata, char* path, int filter);
 
         // Callback for saving commands.
-        static void SDLCALL callbackSaveCommandsPicker(void *userdata, const char *const *filelist, int filter);
+        static void callbackSaveCommandsPicker(void* userdata, char* path, int filter);
 
         // Callback for loading commands.
-        static void SDLCALL callbackLoadCommandsPicker(void *userdata, const char *const *filelist, int filter);
+        static void callbackLoadCommandsPicker(void* userdata, void* contents, int filter, size_t sizeInBytes);
 
         // Callback for opening-music picker.
-        static void SDLCALL callbackLoadMusicPicker(void* userdata, const char* const* filelist, int filter);
+        static void callbackLoadMusicPicker(void* userdata, void* contents, int filter, size_t sizeInBytes);
 
         // Get displayed text string with |
         std::string getDisplayedInputText();
@@ -584,11 +609,9 @@ class Game
         // Reverses the function of `getSignedYPosFromBeat`.
         double getBeatFromSignedYPos(float yPos, float speed);
 
-        // Save preferences of the user.
-        bool savePrefs();
-
-        // Load preferences of the user.
-        bool loadPrefs();
+        // Prepare to save/load preferences of the user. Also syncs and sets the beginning path of the preferences (as a pointer parameter).
+        // Returns whether this was successful.
+        bool beforePrefs(bool initFS);
 
         // Gets the ball size of a ball (i.e. diameter)
         float getBallSize(Ball& ball);
@@ -772,12 +795,29 @@ class Game
         // Get current scaling of rendered elements in the game.
         float getRenderedScale();
 
+        // Load preferences of the user.
+        bool loadPrefs();
+
+        // Save preferences of the user.
+        bool savePrefs();
+
         // Deconstructor for the Game object.
         ~Game();
         
         // Get the number of balls with a certain type.
         template <typename T>
         size_t getBallCount();
+};
+
+/*
+ * Struct used for wrapping userdata, along with the game instance, an opening and saving file data callback.
+ */
+struct UserdataWrapper
+{
+    FileDataCallback callback;
+    FileDataSaveCallback saveCallback;
+    void* userdata;
+    Game* game;
 };
 
 #endif

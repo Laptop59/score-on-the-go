@@ -167,6 +167,8 @@ void SDL_AppQuit(void* appstate, SDL_AppResult result) {
     auto* app = (AppContext*) appstate;
 
     if (app) {
+        // Save preferences.
+        app->game->savePrefs();
         app->game.reset();
         SDL_DestroyRenderer(app->renderer);
         SDL_DestroyWindow(app->window);
@@ -180,4 +182,10 @@ void SDL_AppQuit(void* appstate, SDL_AppResult result) {
     TTF_Quit();
     SDL_Quit();
     SDL_Log("Score on the Go: Bye!");
+}
+
+extern "C" {
+    void Game_loadPrefs(Game* game) {
+        game->loadPrefs();
+    }
 }
