@@ -1,11 +1,14 @@
+#define SDL_MAIN_USE_CALLBACKS  // This is necessary for the new callbacks API. To use the legacy API, don't define this. 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <SDL3/SDL_init.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <SDL3_image/SDL_image.h>
 #include <SDL3_mixer/SDL_mixer.h>
 #include <cmath>
 #include <memory>
 #include "game.h"
+#include <filesystem>
 
 struct AppContext {
     SDL_Window* window;
@@ -57,6 +60,24 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     // Show the Window.
     SDL_ShowWindow(window);
 
+    #if __EMSCRIPTEN__
+        // For web, set this hint as not doing so for the web will cause an error (NULL does not work there.)
+        SDL_SetHint(SDL_HINT_FILE_DIALOG_DRIVER, "portal");
+    #endif
+
+    // Determine the base path.
+    #if __ANDROID__
+        std::filesystem::path basePath = "";   // on Android we do not want to use basepath. Instead, assets are available at the root directory.
+    #else
+        auto basePathPtr = SDL_GetBasePath();
+        if (not basePathPtr) {
+            SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "Could not find the base path.");
+            return SDL_APP_FAILURE;
+        }
+        std::filesystem::path basePath = basePathPtr;
+        basePath = basePath.parent_path();
+    #endif
+
     // Now try to initialize font
     if (!TTF_Init())
     {
@@ -64,8 +85,9 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
         return SDL_APP_FAILURE;
     }
 
-    TTF_Font* font = TTF_OpenFont(FONT_PATH, 64);
-    TTF_Font* fontOutlined = TTF_OpenFont(FONT_PATH, 64);
+    auto fontCPath = (basePath / FONT_PATH).string();
+    TTF_Font* font = TTF_OpenFont(fontCPath.c_str(), 64);
+    TTF_Font* fontOutlined = TTF_OpenFont(fontCPath.c_str(), 64);
     if (font == nullptr || fontOutlined == nullptr)
     {
         SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "Opening Game Font Error: %s", SDL_GetError());
@@ -90,7 +112,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     ac->fontOutlined = fontOutlined;
     ac->app_quit = SDL_APP_CONTINUE;
     ac->game = std::unique_ptr<Game> (new Game(renderer, window, font, fontOutlined, ac->mixer));
-    ac->game->textureLibrary = std::unique_ptr<TextureLibrary> (new TextureLibrary(renderer));
+    ac->game->textureLibrary = std::unique_ptr<TextureLibrary> (new TextureLibrary(renderer, basePath));
     ac->game->textureLibrary->loadTextures();
 
     if (!SDL_GetCurrentTime(&ac->time))

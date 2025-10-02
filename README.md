@@ -7,7 +7,7 @@ This editor allows interactive editing of
 - a Ballfile (a 'chart', one for each difficulty - contains its own BPM changes and Paddle Width & Speed changes)
 - a Background Commands file (a format for playing different background animations outside the editor.)
 
-To learn more about the keybinds in this program, press `F1` to open a list of actions with the keyboard.
+To learn more about the keybinds in this program, press `F1` once to open a list of actions with the keyboard.
 
 No binary releases will be provided to you as of now;
 you must be able to compile this app along with the SDL3 libraries to start using the app.
@@ -15,14 +15,14 @@ This app currently uses a bleeding-edge version of `sdl3_mixer` not actually rel
 
 Be aware that bugs and glitches may exist in this application but the editor is in a mostly-usable state.
 
-## Dependencies
-These dependencies are required to compile the program:
-- SDL3
-- SDL3_ttf
-- SDL3_image
-- SDL3_mixer
-
-Yes, it doesn't use SDL2. It uses *SDL3*.
+# Compiling the project
+This editor adds the required SDL3 modules (`SDL`, `SDL_ttf`, `SDL_image`, `SDL_mixer`) as *submodules* of this repository.
+Run the following once to compile the program with its source code:
+```
+git clone https://github.com/Laptop59/score-on-the-go --depth=1 --recurse-submodules
+cd sdl3-sample
+./build.sh
+```
 
 ## Using with Scratch project
 The following tutorials cover the basics.

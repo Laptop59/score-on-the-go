@@ -1,4 +1,5 @@
 #include <SDL3_image/SDL_image.h>
+#include <filesystem>
 
 #ifndef SCORE_ON_THE_GO_TEXTURE_LIBRARY
 #define SCORE_ON_THE_GO_TEXTURE_LIBRARY
@@ -24,8 +25,11 @@ class TextureLibrary
         // SDL Renderer for creating textures.
         SDL_Renderer* renderer;
 
+        // The base path (from SDL).
+        std::filesystem::path basePath;
+
         // Creates a texture library.
-        TextureLibrary(SDL_Renderer* renderer);
+        TextureLibrary(SDL_Renderer* renderer, std::filesystem::path basePath);
 
         // Deconstructs the texture library.
         ~TextureLibrary();
