@@ -111,6 +111,24 @@ float Game::getPaddleWidth(double beat)
     return it->width;
 }
 
+bool Game::getPaddleDualMode(double beat)
+{
+    if (paddleDualChanges.empty()) {
+        return false;
+    }
+
+    auto it = std::upper_bound(
+        paddleDualChanges.begin(), paddleDualChanges.end(), beat,
+        [](double value, const PaddleDualChange& c){
+            return value < c.beat;
+        }
+    ); // first iterator >= beat
+
+    if (it == paddleDualChanges.begin()) return it->enabled;
+    it--; // last iterator < beat;
+    return it->enabled;
+}
+
 float Game::getInterpolatedPaddleWidth()
 {
     if (paddleWidthChanges.empty()) {
@@ -143,21 +161,26 @@ float Game::getInterpolatedPaddleWidth()
 void Game::renderPlaytest()
 {
     // Render paddle;
-    SDL_FRect paddleRect = SDL_FRect {
-        getGameplayXoffset() + GAMEPLAY_WIDTH / 2 + paddlePosition - getInterpolatedPaddleWidth() / 2,
-        PADDLE_TOP + queuedBallsYoffset(),
-        getInterpolatedPaddleWidth(),
-        PADDLE_HEIGHT
-    };
-    SDL_SetRenderDrawColor(this->renderer, 0xFFu, 0xFFu, 0xFFu, 0xFFu);
-    SDL_RenderFillRect(this->renderer, &paddleRect);
-    // Outline is 5 pixels. However it's an odd number, so 4 is good here.
-    paddleRect.x += 2;
-    paddleRect.y += 2;
-    paddleRect.w -= 4;
-    paddleRect.h -= 4;
-    SDL_SetRenderDrawColor(this->renderer, 0x33u, 0x33u, 0x33u, 0xFFu);
-    SDL_RenderFillRect(this->renderer, &paddleRect);
+    for (size_t i = 0; i <= getPaddleDualMode(this->beat) ? 1 : 0; i++) {
+        float pos = i == 1 ? -paddlePosition : paddlePosition;
+        auto alpha = i == 1 ? 0xAAu : 0xFFu;
+        SDL_FRect paddleRect = SDL_FRect {
+            getGameplayXoffset() + GAMEPLAY_WIDTH / 2 + pos - getInterpolatedPaddleWidth() / 2,
+            PADDLE_TOP + queuedBallsYoffset(),
+            getInterpolatedPaddleWidth(),
+            PADDLE_HEIGHT
+        };
+        SDL_SetRenderDrawColor(this->renderer, 0xFFu, 0xFFu, 0xFFu, alpha);
+        SDL_RenderFillRect(this->renderer, &paddleRect);
+        // Outline is 5 pixels. However it's an odd number, so 4 is good here.
+        paddleRect.x += 2;
+        paddleRect.y += 2;
+        paddleRect.w -= 4;
+        paddleRect.h -= 4;
+        SDL_SetRenderDrawColor(this->renderer, 0x33u, 0x33u, 0x33u, alpha);
+        SDL_RenderFillRect(this->renderer, &paddleRect);
+    }
+    
 
     SDL_Color whiteColor = SDL_Color { 0xFFu, 0xFFu, 0xFFu, 0xFFu };
     float x = getGameplayXoffset() + GAMEPLAY_WIDTH + 5;
@@ -174,6 +197,11 @@ void Game::renderPlaytest()
         LEAVE_LINE();
 
         DRAW_TEXT_W("Paddle Speed: " + formatFloat(getPaddleSpeed(), 1));
+
+        LEAVE_LINE();
+
+        DRAW_TEXT_W("Paddle Dual Mode: ");
+        DRAW_TEXT_W(getPaddleDualMode(this->beat) ? "Enabled" : "Disabled");
 
         LEAVE_LINE();
 
@@ -730,6 +758,23 @@ void Game::drawSpecificEditorMenu()
             );
             break;
 
+        case GameState::EDITING_DUAL:
+            drawText(
+                "Change Paddle Dual Mode", WHITE,
+                x, y - 50, TextAlignment::CENTER_ALIGNED, 1.0f
+            );
+            drawText(
+                "at beat " + std::to_string(beat) + " to: (positive value = enabled)",
+                SDL_Color {0xFFu, 0xAFu, 0xFFu, 0xFFu},
+                x, y, TextAlignment::CENTER_ALIGNED, 0.75f
+            );
+            drawText(
+                getDisplayedInputText(),
+                SDL_Color { 0xFFu, 0x5Fu, 0xDFu, 0xFFu },
+                x, y + 50, TextAlignment::CENTER_ALIGNED, 1.5f
+            );
+            break;
+
         case GameState::EDITING_CMD:
             drawText(
                 "Change Command", WHITE,
@@ -800,6 +845,7 @@ void Game::drawSpecificEditorMenu()
                 DRAW_HELP("W", "Add Paddle Width Change");
                 DRAW_HELP("R", "Reset Preferences to Defaults");
                 DRAW_HELP("D", "Add Paddle Speed Change");
+                DRAW_HELP("U", "Add Paddle Dual Change");
                 DRAW_HELP("C", "Add Command");
                 DRAW_HELP("I/O", "Load/Save Commands");
             }
@@ -910,6 +956,23 @@ void Game::drawEditorBalls(float endY)
             this->drawText(
                 formatFloat(paddleSpeedChange.speed, 0),
                 SDL_Color { 0x5Fu, 0x5Fu, 0xFFu, 0xFFu },
+                GAMEPLAY_WIDTH + getGameplayXoffset() + 14,
+                getEditorSelectedBeatY() + fromSelectedBeat * this->beatSpacing,
+                TextAlignment::LEFT_ALIGNED,
+                0.5f
+            );
+        }
+    }
+
+    // Draw DUAL changes too.
+    for (PaddleDualChange& paddleDualChange : this->paddleDualChanges)
+    {
+        if (paddleDualChange.beat >= min && paddleDualChange.beat <= max)
+        {
+            double fromSelectedBeat = paddleDualChange.beat - this->beat;
+            this->drawText(
+                paddleDualChange.enabled ? "1" : "0",
+                SDL_Color { 0xFFu, 0x5Fu, 0xFFu, 0xFFu },
                 GAMEPLAY_WIDTH + getGameplayXoffset() + 14,
                 getEditorSelectedBeatY() + fromSelectedBeat * this->beatSpacing,
                 TextAlignment::LEFT_ALIGNED,
@@ -1294,7 +1357,8 @@ void Game::callbackSaveBallfilePicker(void* userdata, char* path, int filter)
         game->balls,
         game->bpmChanges,
         game->paddleWidthChanges,
-        game->paddleSpeedChanges
+        game->paddleSpeedChanges,
+        game->paddleDualChanges
     );
 
     // Attempt to save file.
@@ -1305,6 +1369,14 @@ void Game::callbackSaveBallfilePicker(void* userdata, char* path, int filter)
             NAME,
             "Successfully saved ballfile.",
             game->window
+        );
+        // Create necessary data for saving to the file.
+        std::string text = game->serializer->saveBallfile(
+            game->balls,
+            game->bpmChanges,
+            game->paddleWidthChanges,
+            game->paddleSpeedChanges,
+            game->paddleDualChanges
         );
     }
     else if (game->lastError != CANCELLED)
@@ -1353,7 +1425,7 @@ void Game::callbackSaveCommandsPicker(void* userdata, char* path, int filter)
     }
 }
 
-void SDLCALL Game::callbackLoadCommandsPicker(void* userdata, void* contents, int filter, size_t sizeInBytes)
+void Game::callbackLoadCommandsPicker(void* userdata, void* contents, int filter, size_t sizeInBytes)
 {
     // Userdata is our game object.
     Game* game = (Game*) userdata;
@@ -1387,7 +1459,7 @@ void SDLCALL Game::callbackLoadCommandsPicker(void* userdata, void* contents, in
     SDL_free(contents);
 }
 
-void SDLCALL Game::callbackLoadMusicPicker(void* userdata, void* contents, int filter, size_t sizeInBytes)
+void Game::callbackLoadMusicPicker(void* userdata, void* contents, int filter, size_t sizeInBytes)
 {
     // Userdata is our game object.
     Game* game = (Game*) userdata;
@@ -1440,6 +1512,78 @@ void SDLCALL Game::callbackLoadBallfilePicker(void* userdata, void* contents, in
         game->paddleSpeedChanges.clear();
         for (const auto& paddleSpeedChange : success.paddleSpeedChanges)
             game->addPaddleSpeedChange(paddleSpeedChange);
+
+                game->paddleDualChanges.clear();
+                for (const auto& paddleDualChanges : success.paddleDualChanges)
+                    game->addPaddleDualChange(paddleDualChanges);
+
+        game->commands.clear();
+
+        std::string successMessage = std::string("Successfully loaded a ball file with ");
+        successMessage += std::to_string(success.balls.size());
+        successMessage += " balls.";
+        SDL_ShowSimpleMessageBox(
+            SDL_MESSAGEBOX_INFORMATION,
+            NAME,
+            successMessage.c_str(),
+            game->window
+        );
+    }
+    else if (std::holds_alternative<SerializerFailure>(result))
+    {
+        SerializerFailure failure = std::get<SerializerFailure>(result);
+        std::string failMessage = std::string("Could not load the ballfile.");
+        failMessage += "\n[ERRORS: " + std::to_string(failure.errors.size()) + "]";
+        size_t errorsLeft = 16;
+        for (auto error = failure.errors.begin(); error < failure.errors.end(); ++error)
+        {
+            failMessage += "\nAt line " + std::to_string(error->line) + ": " + error->error; 
+            if (!--errorsLeft) break;
+        }
+
+        SDL_ShowSimpleMessageBox(
+            SDL_MESSAGEBOX_ERROR,
+            NAME,
+            failMessage.c_str(),
+            game->window
+        );
+    }
+
+    SDL_free(contents);
+}
+
+void Game::callbackLoadBallfilePicker(void* userdata, void* contents, int filter, size_t sizeInBytes)
+{
+    // Userdata is our game object.
+    Game* game = (Game*) userdata;
+    game->filePickerOpen = false;
+    if (contents == NULL) return;
+    char* text = (char *) contents;
+    SerializerResult result = game->serializer->readBallfile(text, sizeInBytes);
+    
+    if (std::holds_alternative<SerializerSuccess>(result))
+    {
+        SerializerSuccess success = std::get<SerializerSuccess>(result);
+
+        game->balls.clear();
+        for (auto ball = success.balls.begin(); ball < success.balls.end(); ++ball)
+            game->addBall(*ball);
+
+        game->bpmChanges.clear();
+        for (const auto& bpmChange : success.bpmChanges)
+            game->addBpmChange(bpmChange);
+
+        game->paddleWidthChanges.clear();
+        for (const auto& paddleWidthChange : success.paddleWidthChanges)
+            game->addPaddleWidthChange(paddleWidthChange);
+
+        game->paddleSpeedChanges.clear();
+        for (const auto& paddleSpeedChange : success.paddleSpeedChanges)
+            game->addPaddleSpeedChange(paddleSpeedChange);
+
+        game->paddleDualChanges.clear();
+        for (const auto& paddleDualChanges : success.paddleDualChanges)
+            game->addPaddleDualChange(paddleDualChanges);
 
         game->commands.clear();
 
@@ -2291,6 +2435,18 @@ bool Game::handleMenuEvent(SDL_Event* event)
                         gameState = GameState::EDITING_PS; // menu open.
                     }
                     break;
+                case SDLK_U:
+                    // Open/close Paddle Dual changer.
+                    if (gameState == GameState::EDITING_DUAL)
+                    {
+                        gameState = GameState::EDITING_NONE; // menu closed.
+                    }
+                    else if (gameState == GameState::EDITING_NONE)
+                    {
+                        resetInput();
+                        gameState = GameState::EDITING_DUAL; // menu open.
+                    }
+                    break;
                 case SDLK_C:
                     // Open/close Command changer.
                     if (gameState == GameState::EDITING_NONE)
@@ -2346,6 +2502,19 @@ bool Game::handleMenuEvent(SDL_Event* event)
                             addPaddleSpeedChange((PaddleSpeedChange) {
                                 this->beat,
                                 (float) speed
+                            });
+                        }
+                    }
+                    else if (gameState == GameState::EDITING_DUAL)
+                    {
+                        double e;
+                        gameState = GameState::EDITING_NONE;
+                        if (Serializer::checkIsDouble(inputText, e))
+                        {
+                            // Add PS at location.
+                            addPaddleDualChange((PaddleDualChange) {
+                                this->beat,
+                                (float) e > 0
                             });
                         }
                     }
@@ -2749,34 +2918,37 @@ void Game::updateBalls()
 
         float cx = ball->x;
         float cr = size / 2;
+        bool isTouching = false;
+        size_t lastI = getPaddleDualMode(this->beat) ? 1 : 0;
 
-        SDL_FRect rect = SDL_FRect {
-            paddlePosition - getPaddleWidth() / 2,
-            SCREEN_HEIGHT / 2 - PADDLE_TOP - PADDLE_HEIGHT,
-            getPaddleWidth(),
-            PADDLE_HEIGHT  
-        };
+        for (size_t i = 0; i <= lastI && !isTouching; i++) {
+            SDL_FRect rect = SDL_FRect {
+                paddlePosition * (i == 1 ? -1 : 1) - getPaddleWidth() / 2,
+                SCREEN_HEIGHT / 2 - PADDLE_TOP - PADDLE_HEIGHT,
+                getPaddleWidth(),
+                PADDLE_HEIGHT  
+            };
 
-        float rx = rect.x + rect.w / 2;
-        float ry = rect.y + rect.h / 2;
+            float rx = rect.x + rect.w / 2;
+            float ry = rect.y + rect.h / 2;
 
-        float dx = std::abs(rx - cx);
-        float dy = std::abs(ry - cy);
+            float dx = std::abs(rx - cx);
+            float dy = std::abs(ry - cy);
 
-        if (dx > rect.w / 2 + cr || dy > rect.h / 2 + cr)
-        {
-            // Definitely not touching.
-            ++ball;
-            continue;
-        }
+            if (dx > rect.w / 2 + cr || dy > rect.h / 2 + cr)
+            {
+                // Definitely not touching.
+                continue;
+            }
 
-        bool isTouching = dx <= (rect.w / 2) || dy <= (rect.h / 2);
+            isTouching = dx <= (rect.w / 2) || dy <= (rect.h / 2);
 
-        if (!isTouching)
-        {
-            float cornerDistanceSq =
-                std::pow(dx - rect.w / 2, 2.0f) + std::pow(dy - rect.h / 2, 2.0f);
-            isTouching = cornerDistanceSq <= cr * cr;
+            if (!isTouching)
+            {
+                float cornerDistanceSq =
+                    std::pow(dx - rect.w / 2, 2.0f) + std::pow(dy - rect.h / 2, 2.0f);
+                isTouching = cornerDistanceSq <= cr * cr;
+            }
         }
 
         if (isTouching)
@@ -2790,7 +2962,7 @@ void Game::updateBalls()
                 std::holds_alternative<BallTypePit>(ball->type))
                 judgement = Judgement::HIT_MINE;
             else
-                judgement = getJudgementFromDifference(std::abs(paddlePosition - ball->x));
+                judgement = getJudgementFromDifference(std::min(std::abs(paddlePosition - ball->x), std::abs(paddlePosition + ball->x)));
             
             queuedBallFlashes.push_back(BallFlash {
                 seconds,
@@ -2902,7 +3074,7 @@ void Game::resetInput()
 
 InputMode Game::inputModeEnabled()
 {
-    if (gameState == GameState::EDITING_BPM || gameState == GameState::EDITING_PW || gameState == GameState::EDITING_PS || gameState == GameState::EDITING_MUSIC_OFFSET) return InputMode::NUMERIC;
+    if (gameState == GameState::EDITING_BPM || gameState == GameState::EDITING_PW || gameState == GameState::EDITING_PS || gameState == GameState::EDITING_DUAL || gameState == GameState::EDITING_MUSIC_OFFSET) return InputMode::NUMERIC;
     if (gameState == GameState::EDITING_CMD) return InputMode::TEXT;
     return InputMode::NONE;
 }
@@ -3108,6 +3280,46 @@ void Game::addPaddleSpeedChange(const PaddleSpeedChange& paddleSpeedChange)
         paddleSpeedChanges.push_back((PaddleSpeedChange) {
             0.0,
             DEFAULT_BPM
+        });
+}
+
+void Game::addPaddleDualChange(const PaddleDualChange& paddleDualChange)
+{
+    // We want to find the position where the change can be added such
+    // that the changes are in ascending order depending on their beat.
+    bool isPut = false;
+    for (auto bc = paddleDualChanges.begin(); bc < paddleDualChanges.end(); ++bc)
+    {
+        if (bc->beat == paddleDualChange.beat)
+        {
+            *bc = paddleDualChange;
+            isPut = true;
+            break;
+        }
+    }
+    if (!isPut)
+    {
+        this->paddleDualChanges.insert(
+            std::lower_bound(paddleDualChanges.begin(), paddleDualChanges.end(), paddleDualChange),
+            paddleDualChange
+        );
+    }
+    // Remove unnecessary changes.
+    double last = NAN;
+    for (auto change = paddleDualChanges.begin(); change < paddleDualChanges.end();)
+    {
+        if (change->enabled == last)
+            change = paddleDualChanges.erase(change);
+        else
+        {
+            last = change->enabled;
+            ++change;
+        }
+    }
+    if (paddleDualChanges.empty())
+        paddleDualChanges.push_back((PaddleDualChange) {
+            0.0,
+            false
         });
 }
 

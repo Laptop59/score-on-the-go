@@ -34,13 +34,15 @@ std::string Serializer::saveBallfile(
     std::vector<Ball>& balls,
     std::vector<BpmChange>& bpmChanges,
     std::vector<PaddleWidthChange>& paddleWidthChanges,
-    std::vector<PaddleSpeedChange>& paddleSpeedChanges
+    std::vector<PaddleSpeedChange>& paddleSpeedChanges,
+    std::vector<PaddleDualChange>& paddleDualChanges
 )
 {
     auto ballIter = balls.begin();
     auto bpmChangesIter = bpmChanges.begin();
     auto paddleWidthChangesIter = paddleWidthChanges.begin();
     auto paddleSpeedChangesIter = paddleSpeedChanges.begin();
+    auto paddleDualChangesIter = paddleDualChanges.begin();
     std::string output = "";
     while (true)
     {
@@ -50,8 +52,18 @@ std::string Serializer::saveBallfile(
         // `2`: BPM Change
         // `3`: Paddle width change
         // `4`: Paddle speed change
+        // `5`: Paddle dual change
         uint8_t next = 0;
         double leastBeat = INFINITY;
+        // Prioritize Paddle Dual changes over the below changes.
+        if (paddleDualChangesIter != paddleDualChanges.end())
+        {
+            if (paddleDualChangesIter->beat < leastBeat)
+            {
+                leastBeat = paddleDualChangesIter->beat;
+                next = 5;
+            }
+        }
         // Prioritize Paddle Speed changes over the below changes.
         if (paddleSpeedChangesIter != paddleSpeedChanges.end())
         {
@@ -165,6 +177,14 @@ std::string Serializer::saveBallfile(
                 output += ":ps\n";
                 ++paddleSpeedChangesIter;
                 break;
+            case 5:
+                // Dual mode switch.
+                output += std::to_string(paddleDualChangesIter->beat);
+                output += ':';
+                output += paddleDualChangesIter->enabled ? '1' : '0';
+                output += ":dual\n";
+                ++paddleDualChangesIter;
+                break;
         }
     }
     if (!output.empty())
@@ -185,6 +205,7 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)
     this->bpmChanges.clear();
     this->paddleWidthChanges.clear();
     this->paddleSpeedChanges.clear();
+    this->paddleDualChanges.clear();
 
     std::vector<Ball> balls;
 
@@ -303,6 +324,15 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)
                     });
                     continue;
                 }
+                else if (segments.at(2).compare(paddleDualString) == 0)
+                {
+                    // Add dual change.
+                    this->paddleDualChanges.push_back((PaddleDualChange) {
+                        beat,
+                        x > 0
+                    });
+                    continue;
+                }
                 else if (!checkIsDouble(segments.at(2), speed))
                 {
                     this->errors.push_back((SerializerError) {
@@ -400,7 +430,8 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount)
             balls,
             this->bpmChanges,
             this->paddleWidthChanges,
-            this->paddleSpeedChanges
+            this->paddleSpeedChanges,
+            this->paddleDualChanges
         };
         // Return errors.
         SerializerResult result {
