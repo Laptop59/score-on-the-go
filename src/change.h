@@ -82,6 +82,33 @@ struct PaddleSpeedChange
     }
 };
 
+// Defines a Dual change.
+struct PaddleDualChange
+{
+    double beat;
+    bool enabled;
+
+    bool operator<(PaddleDualChange other)
+    {
+        return beat < other.beat;
+    }
+
+    bool operator>(PaddleDualChange other)
+    {
+        return beat > other.beat;
+    }
+
+    bool operator<=(PaddleDualChange other)
+    {
+        return beat <= other.beat;
+    }
+
+    bool operator>=(PaddleDualChange other)
+    {
+        return beat >= other.beat;
+    }
+};
+
 // Defines a Command.
 struct Command
 {

@@ -153,7 +153,8 @@ enum GameState
     EDITING_PW            = 0x05,
     EDITING_PS            = 0x06,
     EDITING_CMD           = 0x07,
-    EDITING_MUSIC_OFFSET  = 0x08
+    EDITING_DUAL          = 0x08,
+    EDITING_MUSIC_OFFSET  = 0x09
 };
 
 /*
@@ -344,6 +345,9 @@ class Game
         // Paddle speed changes in the ballfile.
         std::vector<PaddleSpeedChange> paddleSpeedChanges = {(PaddleSpeedChange) {0.0, DEFAULT_PADDLE_SPEED}};
 
+        // Paddle dual changes in the ballfile.
+        std::vector<PaddleDualChange> paddleDualChanges = {(PaddleDualChange) {0.0, false}};
+
         // Commands in the ballfile. (In this editor, nothing happens due to commands)
         std::vector<Command> commands = {};
 
@@ -490,6 +494,9 @@ class Game
 
         // Adds a paddle speed change in their vector. DO NOT CALL THIS FUNCTION AT THE SAME TIME THE VECTOR'S ITERATORS ARE USED!
         void addPaddleSpeedChange(const PaddleSpeedChange &paddleSpeedChange);
+
+        // Adds a dual speed change in their vector. DO NOT CALL THIS FUNCTION AT THE SAME TIME THE VECTOR'S ITERATORS ARE USED!
+        void addPaddleDualChange(const PaddleDualChange &paddleDualChange);
 
         // Adds a command in their vector. DO NOT CALL THIS FUNCTION AT THE SAME TIME THE VECTOR'S ITERATORS ARE USED!
         void addCommand(const Command &command);
@@ -735,6 +742,9 @@ class Game
 
         // Get paddle width at a beat.
         float getPaddleWidth(double beat);
+
+        // Get whether the paddle is currently in dual mode or not.
+        bool getPaddleDualMode(double beat);
 
         // Get the interpolated paddle width at the current beat.
         float getInterpolatedPaddleWidth();

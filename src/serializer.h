@@ -16,6 +16,7 @@ struct SerializerSuccess
     std::vector<BpmChange> bpmChanges;
     std::vector<PaddleWidthChange> paddleWidthChanges;
     std::vector<PaddleSpeedChange> paddleSpeedChanges;
+    std::vector<PaddleDualChange> paddleDualChanges;
 };
 
 // Represents a serializer error.
@@ -43,6 +44,9 @@ const std::string paddleWidthString = "pw";
 // Used in parsing ballfiles for paddle speed changes.
 const std::string paddleSpeedString = "ps";
 
+// Used in parsing ballfiles for dual changes.
+const std::string paddleDualString = "dual";
+
 class Serializer
 {
     private:
@@ -52,6 +56,7 @@ class Serializer
         std::vector<BpmChange> bpmChanges;
         std::vector<PaddleWidthChange> paddleWidthChanges;
         std::vector<PaddleSpeedChange> paddleSpeedChanges;
+        std::vector<PaddleDualChange> paddleDualChanges;
         std::vector<Command> commands;
 
     public:
@@ -59,7 +64,7 @@ class Serializer
         Serializer();
 
         // Saves a ball file by returning string contents.
-        std::string saveBallfile(std::vector<Ball> &balls, std::vector<BpmChange> &bpmChanges, std::vector<PaddleWidthChange> &paddleWidthChanges, std::vector<PaddleSpeedChange> &paddleSpeedChanges);
+        std::string saveBallfile(std::vector<Ball> &balls, std::vector<BpmChange> &bpmChanges, std::vector<PaddleWidthChange> &paddleWidthChanges, std::vector<PaddleSpeedChange> &paddleSpeedChange, std::vector<PaddleDualChange>& paddleDualChanges);
         
         // Reads a ball file from its contents and returns the result.
         // Note: DO NOT PASS `NULL`/`nullptr` into the contents.
