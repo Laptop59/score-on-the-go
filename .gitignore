@@ -9,3 +9,8 @@ score-on-the-go
 Makefile
 CMakeCache.txt
 cmake_install.cmake
+
+# Ignore all audio files in edit_resources.
+edit_resources/**/*.mp3
+edit_resources/**/*.wav
+edit_resources/**/*.ogg

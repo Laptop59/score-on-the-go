@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 #include <optional>
+#include <unordered_map>
 
 #ifndef SCORE_ON_THE_GO_GAME
 #define SCORE_ON_THE_GO_GAME
@@ -96,7 +97,7 @@ typedef void (*FileDataCallback)(void *userdata, void* contents, int filter, siz
 
 // A platform-independent callback similar to `SDL_DialogFileCallback`, but gives file data instead of file paths, and does not have a size parameter. These callbacks
 // should set the appropriate variables.
-typedef void (*FileDataSaveCallback)(void *userdata, char* path, int filter);
+typedef void (*FileDataSaveCallback)(void *userdata, const char* path, int filter);
 
 // Specifies how text is aligned.
 enum TextAlignment
@@ -117,17 +118,16 @@ struct Circle
 };
 
 /*
- * Judgement in game.
+ * Judgment in game.
  */
-enum Judgement
+enum Judgment
 {
     PERFECT      = 0x01,
     GREAT        = 0x02,
     GOOD         = 0x03,
     MISS         = 0x00,
-    HELD         = 0x04,
-    HIT_MINE     = 0x05,
-    AVOIDED_MINE = 0x06
+    OK         = 0x04,
+    OOPS     = 0x05,
 };
 
 /*
@@ -165,7 +165,10 @@ enum GameState
     EDITING_PS            = 0x06,
     EDITING_CMD           = 0x07,
     EDITING_DUAL          = 0x08,
-    EDITING_MUSIC_OFFSET  = 0x09
+    EDITING_MUSIC_OFFSET  = 0x09,
+
+    // Edit-specific
+    EDITING_MUSIC         = 0x10
 };
 
 /*
@@ -203,13 +206,14 @@ enum InputMode
 {
     NONE      = 0x00,
     NUMERIC   = 0x01,
-    TEXT      = 0x02
+    TEXT      = 0x02,
+    SELECT    = 0x03
 };
 
 /*
  * Enum representing selected ball to be placed (normal, hold, etc...)
  */
-enum SelectedPlacableBall
+enum SelectedPlaceableBall
 {
     NORMAL      = 0x00,
 };
@@ -220,7 +224,7 @@ enum SelectedPlacableBall
 struct BallFlash
 {
     double secondsWhenHit;
-    Judgement judgement;
+    Judgment judgment;
     float x;
     float y;
 };
@@ -273,7 +277,7 @@ class Game
         // Default paddle width.
         constexpr static float DEFAULT_PADDLE_WIDTH = 125.0f;
 
-        // Maximum from left the paddle can go in either side.
+        // Maximum from left the paddle's edge can go in either side.
         float PADDLE_MAX_LEFT = GAMEPLAY_WIDTH / 2 - 13.0f;
 
         // Paddle top pixel.
@@ -294,7 +298,7 @@ class Game
         // Default ball speed.
         float BALL_SPEED = 100.0f;
 
-        // Ball flash expiry, the time it takes to do so for the time it was hit. Used for judgement showing.
+        // Ball flash expiry, the time it takes to do so for the time it was hit. Used for judgment showing.
         double BALL_FLASH_EXPIRY = 20.0 / 30;
 
         // Ball flash size. (diameter)
@@ -317,7 +321,7 @@ class Game
         float musicOffset = 0.0;
 
         // Selected ball to place.
-        SelectedPlacableBall selectedToPlace = SelectedPlacableBall::NORMAL;
+        SelectedPlaceableBall selectedToPlace = SelectedPlaceableBall::NORMAL;
 
         // Queued balls for playing/playtesting.
         std::vector<Ball> queuedBalls;
@@ -339,6 +343,15 @@ class Game
 
         // Text input by the user, used in various things.
         std::string inputText = "";
+
+        // Music ID chosen by the user (only applicable in edit mode.)
+        size_t musicId = 0;
+
+        // Currently applying music ID (only applicable in edit mode.)
+        size_t appliedMusicId = 0;
+
+        // List of song names and their authors found when loading the game that can be used for edits.
+        std::vector<EditSong> editSongs = {};
 
         // Text input cursor position
         // Example:
@@ -423,6 +436,9 @@ class Game
 
         // Whether the point should be cloned.
         bool shouldClonePoint;
+
+        // The base path of the game (its folder).
+        std::filesystem::path basePath;
 
         // Start playing music.
         void startPlayingMusic(double seconds);
@@ -590,10 +606,10 @@ class Game
         static void callbackLoadBallfilePicker(void* userdata, void* contents, int filter, size_t sizeInBytes);
 
         // Callback for saving-a-file picker.
-        static void callbackSaveBallfilePicker(void* userdata, char* path, int filter);
+        static void callbackSaveBallfilePicker(void* userdata, const char* path, int filter);
 
         // Callback for saving commands.
-        static void callbackSaveCommandsPicker(void* userdata, char* path, int filter);
+        static void callbackSaveCommandsPicker(void* userdata, const char* path, int filter);
 
         // Callback for loading commands.
         static void callbackLoadCommandsPicker(void* userdata, void* contents, int filter, size_t sizeInBytes);
@@ -636,14 +652,14 @@ class Game
         // Updates flashes when hitting balls.
         void updateFlashes();
 
-        // Render flashes and the most recent judgement.
-        void renderFlashesAndJudgement();
+        // Render flashes and the most recent judgment.
+        void renderFlashesAndJudgment();
 
-        // Gets judgement from position difference.
-        Judgement getJudgementFromDifference(float difference);
+        // Gets judgment from position difference.
+        Judgment getJudgmentFromDifference(float difference);
 
-        // Gets judgement from miliseconds. (Squares)
-        Judgement getJudgementFromMilliseconds(double milliseconds);
+        // Gets judgment from miliseconds. (Squares)
+        Judgment getJudgmentFromMilliseconds(double milliseconds);
 
         // Checks if a ball can be hit by a paddle. Non-interactable balls' ball bodies are not rendered.
         bool isQueuedBallInteractable(Ball& ball);
@@ -669,8 +685,8 @@ class Game
         // Value to tell the number of minibeats a placed bouncy ball's interval SHALL BE (editor)
         minibeat editorBouncyInterval = MINIBEATS_PER_BEAT;
 
-        // Get flash color from a judgement.
-        constexpr SDL_Color getFlashColor(Judgement judgement)
+        // Get flash color from a judgment.
+        constexpr SDL_Color getFlashColor(Judgment judgment)
         {
             const SDL_Color colors[] = {
                 SDL_Color { 0x00, 0x00, 0x00, 0x00 }, // no flash for miss
@@ -678,40 +694,38 @@ class Game
                 SDL_Color { 0x87, 0xFF, 0x9B, 0x7F }, // greenish
                 SDL_Color { 0xDF, 0xFF, 0x87, 0x7F }, // yellowish
                 SDL_Color { 0xFF, 0xFF, 0xFF, 0x7F }, // white - for held
-                SDL_Color { 0xFF, 0x7F, 0x7F, 0x7F }, // redish - for mines
+                SDL_Color { 0xFF, 0xFF, 0xFF, 0xFF }, // custom explosion texture
                 SDL_Color { 0x00, 0x00, 0x00, 0x00 }  // no flash for avoiding mines
             };
-            return colors[judgement];
+            return colors[judgment];
         }
 
-        // Get text color from a judgement.
-        constexpr SDL_Color getTextColor(Judgement judgement)
+        // Get text color from a judgment.
+        constexpr SDL_Color getTextColor(Judgment judgment)
         {
             const SDL_Color colors[] = {
                 SDL_Color { 0xFF, 0x87, 0x87, 0xFF }, // redish
                 SDL_Color { 0x88, 0xDF, 0xFF, 0xFF }, // bluish
                 SDL_Color { 0xAD, 0xFF, 0x87, 0xFF }, // greenish
                 SDL_Color { 0xFF, 0xFA, 0x87, 0xFF }, // yellowish
-                SDL_Color { 0x00, 0x00, 0x00, 0x00 }, // no text color for held
-                SDL_Color { 0x00, 0x00, 0x00, 0x00 }, // no text color for hitting mine
-                SDL_Color { 0x00, 0x00, 0x00, 0x00 }  // nor for avoiding the mines
+                SDL_Color { 0xFF, 0xDF, 0x70, 0xFF }, // goldish
+                SDL_Color { 0xAF, 0x6F, 0xFF, 0x00 }  // purpleish
             };
-            return colors[judgement];
+            return colors[judgment];
         }
 
-        // Get text from a judgement.
-        const std::string getText(Judgement judgement)
+        // Get text from a judgment.
+        const std::string getText(Judgment judgment)
         {
             const std::string strs[] = {
                 "Miss...",
                 "Perfect!!",
                 "Great!",
                 "Good",
-                "", // no text for held here.
-                "", // same for hitting mine.
-                ""  // and for avoiding mines.
+                "OK!",
+                "Oops..."
             };
-            return strs[judgement];
+            return strs[judgment];
         }
 
         // Get text from a placing mode.
@@ -726,10 +740,10 @@ class Game
             return strs[mode];
         }
 
-        // Checks if a judgement's text should be considered for taking last judgement to be shown.
-        const bool isShownAsTextWhenLast(Judgement judgement)
+        // Checks if a judgment's text should be considered for taking last judgment to be shown.
+        const bool isShownAsTextWhenLast(Judgment judgment)
         {
-            return judgement <= Judgement::GOOD;
+            return judgment <= Judgment::GOOD;
         }
 
     public:
@@ -755,7 +769,7 @@ class Game
         uint8_t paddleKeysPressedOnce = 0b0000;
 
         // Constructor for the Game object.
-        Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font* fontOutlined, MIX_Mixer* mixer);
+        Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font* fontOutlined, MIX_Mixer* mixer, std::filesystem::path basePath);
 
         // Function to update with new delta time.
         void update();
@@ -765,6 +779,10 @@ class Game
 
         // Function to render to the renderer.
         void render();
+
+        // Draws a line marker with the offset of a beat from the currently selected beat in the editor (used for BPM changes, etc.)
+        // It also draws text with different color parameters and a y text offset and alignment.
+        void drawLineMarker(double fromSelectedBeat, SDL_Color lineColor, std::string str, SDL_Color textColor, int textOffset, TextAlignment alignment, float widthMul);
 
         // Get current paddle width.
         float getPaddleWidth();
@@ -810,6 +828,9 @@ class Game
 
         // Save preferences of the user.
         bool savePrefs();
+
+        // Applies the new BPM changes and music given by the `musicId` property.
+        void applyNewEditSong();
 
         // Deconstructor for the Game object.
         ~Game();

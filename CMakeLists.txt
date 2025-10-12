@@ -4,6 +4,25 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_LIST_DIR}/resources"
+    "${CMAKE_CURRENT_LIST_DIR}/edit_resources"
+)
+
+################ 
+## Program-configurable flags
+# These can be checked using #ifdef/#ifndef.
+#
+# Whether charts made with this editor are for online edits.
+# OFF - for official charts, ON - for edits.
+set(EDIT_MODE ON)
+
+################
+if (EDIT_MODE)
+    add_definitions(-DEDIT_MODE=1)
+endif()
+
+
 # set the output directory for built objects.
 # This makes sure that the dynamic library goes into the build directory automatically.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIGURATION>")
@@ -99,10 +118,10 @@ add_subdirectory(SDL_image EXCLUDE_FROM_ALL)
 
 # Link SDL to our executable. This also makes its include directory available to us. 
 target_link_libraries(${EXECUTABLE_NAME} PUBLIC 
-	SDL3_ttf::SDL3_ttf      # remove if you are not using SDL_ttf
-	SDL3_mixer::SDL3_mixer  # remove if you are not using SDL_mixer
-	SDL3_image::SDL3_image	# remove if you are not using SDL_image
-    SDL3::SDL3              # If using satelite libraries, SDL must be the last item in the list. 
+	SDL3_ttf::SDL3_ttf
+	SDL3_mixer::SDL3_mixer
+	SDL3_image::SDL3_image
+    SDL3::SDL3
 )
 
 # SDL_Image bug: https://github.com/libsdl-org/SDL_image/issues/506
@@ -118,29 +137,59 @@ endif()
 # Dealing with assets
 # We have some non-code resources that our application needs in order to work. How we deal with those differs per platform.
 if (APPLE)
-    # on Apple targets, the application bundle has a "resources" subfolder where we can place our assets.
+    # on Apple targets, the application bundle has a "Resources" subfolder where we can place our assets.
     # SDL_GetBasePath() gives us easy access to that location.
-    set(input_root "${CMAKE_CURRENT_LIST_DIR}/resources")
-    macro(add_resource FILE)
-        file(RELATIVE_PATH relpath "${input_root}" "${FILE}")
-        get_filename_component(relpath "${relpath}" DIRECTORY)
-        target_sources(${EXECUTABLE_NAME} PRIVATE ${FILE})
-        set_property(SOURCE ${FILE} PROPERTY MACOSX_PACKAGE_LOCATION "Resources/${relpath}")
+    macro(add_res_folder RES_FOLDER)
+        set(input_root "${CMAKE_CURRENT_LIST_DIR}/${RES_FOLDER}")
+
+        macro(add_resource FILE)
+            # Get path of FILE relative to input_root
+            file(RELATIVE_PATH relpath "${input_root}" "${FILE}")
+            get_filename_component(relpath "${relpath}" DIRECTORY)
+
+            # Add the file as a source
+            target_sources(${EXECUTABLE_NAME} PRIVATE ${FILE})
+
+            # Preserve directory structure in Resources/
+            if(relpath STREQUAL "")
+                # If file is directly under resources/, put it in top-level Resources
+                set_property(SOURCE ${FILE} PROPERTY MACOSX_PACKAGE_LOCATION "Resources")
+            else()
+                # Otherwise put it in Resources/<subdir>
+                set_property(SOURCE ${FILE} PROPERTY MACOSX_PACKAGE_LOCATION "Resources/${relpath}")
+            endif()
+        endmacro()
+
+        # Collect all files recursively from resources/.
+        # Note that new files will not be updated unless you run CMake again (with GLOB),
+        # but this is fine for us as building always calls CMake.
+        file(GLOB_RECURSE RESOURCE_FILES
+            "${input_root}/*"
+        )
+
+        # Add each file with its preserved path.
+        foreach(res ${RESOURCE_FILES})
+            add_resource("${res}")
+        endforeach()
     endmacro()
-    add_resource("${CMAKE_CURRENT_LIST_DIR}/resources/balls.png")
-    add_resource("${CMAKE_CURRENT_LIST_DIR}/resources/flash.png")
-    add_resource("${CMAKE_CURRENT_LIST_DIR}/resources/logo.png")
-    add_resource("${CMAKE_CURRENT_LIST_DIR}/resources/mines.png")
-    add_resource("${CMAKE_CURRENT_LIST_DIR}/resources/squares.png")
-    add_resource("${CMAKE_CURRENT_LIST_DIR}/resources/tail.png")
-    add_resource("${CMAKE_CURRENT_LIST_DIR}/resources/NotoSans-Regular.ttf")
+
+    add_res_folder("resources")
+    if(EDIT_MODE) # include specific edit mode resources.
+        add_res_folder("edit_resources")
+    endif()
+
 elseif(EMSCRIPTEN)
-    # on the web, we have to put the files inside of the webassembly
-    # somewhat unintuitively, this is done via a linker argument.
+    # On the web, we have to put the files inside of the WebAssembly.
+    # Somewhat unintuitively, this is done via a linker argument.
     
     target_link_libraries(${EXECUTABLE_NAME} PRIVATE
         "--preload-file \"${CMAKE_CURRENT_LIST_DIR}/resources@/resources\""
     )
+    if(EDIT_MODE) # include specific edit mode resources.
+        target_link_libraries(${EXECUTABLE_NAME} PRIVATE
+            "--preload-file \"${CMAKE_CURRENT_LIST_DIR}/edit_resources@/edit_resources\""
+        )
+    endif()
     target_link_options(${EXECUTABLE_NAME} PRIVATE
         # Export some C functions to JS.
         "-sEXPORTED_FUNCTIONS=[\"_SDL_malloc\",\"_main\",\"_Game_loadPrefs\"]"
@@ -158,31 +207,46 @@ else()
         if (NOT MOBILE_ASSETS_DIR)
             message(FATAL_ERROR "Building for Android, but MOBILE_ASSETS_DIR is not set")
         endif()
-        file(MAKE_DIRECTORY "${MOBILE_ASSETS_DIR}")    # we need to create the project Assets dir otherwise CMake won't copy our assets.
+        file(MAKE_DIRECTORY "${MOBILE_ASSETS_DIR}")    # We need to create the project Assets dir; otherwise CMake won't copy our assets.
     endif()
 
     
     macro(copy_helper filename)
         if (ANDROID)
-            # MOBILE_ASSETS_DIR is set in the gradle file via the cmake command line and points to the Android Studio Assets folder. 
-            # when we copy assets there, the Android build pipeline knows to add them to the apk. 
-            set(outname "${MOBILE_ASSETS_DIR}/${filename}")    
+            set(outname "${MOBILE_ASSETS_DIR}/${filename}")
         else()
-            # for platforms that do not have a good packaging format, all we can do is copy the assets to the process working directory.
             set(outname "${CMAKE_BINARY_DIR}/$<CONFIGURATION>/${filename}")
         endif()
-        add_custom_command(POST_BUILD
-            TARGET "${EXECUTABLE_NAME}"
-		    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_LIST_DIR}/${filename}" "${outname}"
-	    )
+
+        # Get the directory portion of the file path
+        get_filename_component(outdir "${outname}" DIRECTORY)
+
+        add_custom_command(TARGET "${EXECUTABLE_NAME}" POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${outdir}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_LIST_DIR}/${filename}"
+                "${outname}"
+        )
     endmacro()
-    copy_helper("resources/balls.png")
-    copy_helper("resources/flash.png")
-    copy_helper("resources/logo.png")
-    copy_helper("resources/mines.png")
-    copy_helper("resources/squares.png")
-    copy_helper("resources/tail.png")
-    copy_helper("resources/NotoSans-Regular.ttf")
+
+
+    # Gather all resource files recursively.
+    file(GLOB_RECURSE RESOURCE_FILES
+        "${CMAKE_CURRENT_LIST_DIR}/resources/*"
+    )
+    if (EDIT_MODE)
+        file(GLOB_RECURSE EDIT_RESOURCE_FILES
+            "${CMAKE_CURRENT_LIST_DIR}/edit_resources/*"
+        )
+        list(APPEND RESOURCE_FILES ${EDIT_RESOURCE_FILES})
+    endif()
+
+    # Loop, and do a copy for each one!
+    foreach(res ${RESOURCE_FILES})
+        # Get relative path inside resources/.
+        file(RELATIVE_PATH relpath "${CMAKE_CURRENT_LIST_DIR}" "${res}")
+        copy_helper("${relpath}")
+    endforeach()
 endif()
 
 # set some extra configs for each platform

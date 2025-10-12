@@ -77,6 +77,10 @@
         "text_encoding": "cpp",
         "thread": "cpp",
         "cfenv": "cpp",
-        "valarray": "cpp"
+        "valarray": "cpp",
+        "coroutine": "cpp",
+        "source_location": "cpp",
+        "shared_mutex": "cpp",
+        "stack": "cpp"
     }
 }

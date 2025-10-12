@@ -31,9 +31,11 @@ build_web_windows.bat
 - For the web, make sure to install the `emsdk` and make it accessiblt to the terminal: https://emscripten.org/docs/getting_started/downloads.html
 - For native platforms and for Windows, you can replace `build` with `test` to also open the built executable. This is preferable for testing some new code.
 
-> **NOTE:** I have only tested the `generic` and `unix` scripts (so take the rest with a grain of salt!)
+> **NOTE:** I have only tested them with Linux (so take the rest with a grain of salt!)
 
 Run `update_sdl.sh` to update the SDL modules in the project.
+
+> **NOTE:** For *edit mode* (version of the editor for creating online edits), audio files for every song listed in `edit_resources/songs.txt` have to be collected and placed in their respective folders.
 
 ## Using with Scratch project
 The following tutorials cover the basics.

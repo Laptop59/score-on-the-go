@@ -15,7 +15,9 @@ void TextureLibrary::loadTextures()
     this->loadTexture(&this->balls, "resources/balls.png");
     this->loadTexture(&this->flash, "resources/flash.png");
     this->loadTexture(&this->tail, "resources/tail.png");
-    this->loadTexture(&this->mines, "resources/mines.png");
+    this->loadTexture(&this->pitTail, "resources/pit_tail.png");
+    this->loadTexture(&this->mine, "resources/mine.png");
+    this->loadTexture(&this->mineFlash, "resources/mine_flash.png");
     this->loadTexture(&this->squares, "resources/squares.png");
 }
 
@@ -25,7 +27,9 @@ TextureLibrary::~TextureLibrary()
     this->unloadTexture(&this->balls);
     this->unloadTexture(&this->flash);
     this->unloadTexture(&this->tail);
-    this->unloadTexture(&this->mines);
+    this->unloadTexture(&this->pitTail);
+    this->unloadTexture(&this->mine);
+    this->unloadTexture(&this->mineFlash);
     this->unloadTexture(&this->squares);
 }
 

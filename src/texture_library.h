@@ -10,14 +10,20 @@ class TextureLibrary
         // Texture of balls to be hit.
         SDL_Texture* balls;
 
-        // Textures of ball mines to be avoided.
-        SDL_Texture* mines;
+        // Texture of the ball mine to be avoided.
+        SDL_Texture* mine;
 
         // Texture of a flash.
         SDL_Texture* flash;
 
-        // Texture of a segment of a tail of a tailed circle.
+        // Texture of a flash due to hitting a mine.
+        SDL_Texture* mineFlash;
+
+        // Texture of a segment of a tail of a hold.
         SDL_Texture* tail;
+
+        // Texture of a segment of a tail of a pit.
+        SDL_Texture* pitTail;
 
         // Texture of squares.
         SDL_Texture* squares;

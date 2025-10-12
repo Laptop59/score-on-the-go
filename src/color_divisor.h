@@ -52,14 +52,14 @@ class ColorDivisor
             }
             return ColorDivisor::DIVISOR_192ND;
         }
-        
-        // Gets the protraying color of a divisor.
-        constexpr SDL_Color getProtrayingColor()
+
+        // Gets the color of a quantization.
+        static constexpr SDL_Color getQuantizedColor(size_t i)
         {
             const SDL_Color colors[] = {
                 (SDL_Color) { 0x00u, 0x00u, 0x00u, 0xFFu }, // Black (INVALID)
                 (SDL_Color) { 0xFFu, 0x00u, 0x00u, 0xFFu }, // Red
-                (SDL_Color) { 0x3Fu, 0x00u, 0xFFu, 0xFFu }, // Blue
+                (SDL_Color) { 0x1Fu, 0x20u, 0xFFu, 0xFFu }, // Blue
                 (SDL_Color) { 0xFFu, 0x00u, 0xFFu, 0xFFu }, // Magenta
                 (SDL_Color) { 0xFFu, 0xFFu, 0x00u, 0xFFu }, // Yellow
                 (SDL_Color) { 0x7Fu, 0x00u, 0xFFu, 0xFFu }, // Purple
@@ -68,7 +68,13 @@ class ColorDivisor
                 (SDL_Color) { 0xFFu, 0xFFu, 0xFFu, 0xFFu }, // White
                 (SDL_Color) { 0xFFu, 0xFFu, 0xFFu, 0xFFu }, // White
             };
-            return colors[getColor() + 1];
+            return colors[i + 1];
+        }
+        
+        // Gets the protraying color of a divisor.
+        constexpr SDL_Color getProtrayingColor()
+        {
+            return this->getQuantizedColor(getColor());
         }
 
         // Gets the text color for displaying an editor ball.

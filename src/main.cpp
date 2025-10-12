@@ -111,7 +111,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     ac->font = font;
     ac->fontOutlined = fontOutlined;
     ac->app_quit = SDL_APP_CONTINUE;
-    ac->game = std::unique_ptr<Game> (new Game(renderer, window, font, fontOutlined, ac->mixer));
+    ac->game = std::unique_ptr<Game> (new Game(renderer, window, font, fontOutlined, ac->mixer, basePath));
     ac->game->textureLibrary = std::unique_ptr<TextureLibrary> (new TextureLibrary(renderer, basePath));
     ac->game->textureLibrary->loadTextures();
 

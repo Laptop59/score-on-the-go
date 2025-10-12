@@ -1,0 +1,46 @@
+# Blank lines/lines starting with # are ignored.
+#
+# The song names and authors alternate. Make sure to put a folder for each
+# listed song here in the same directory as this file (songs.txt). Each of
+# them should contain a music file named "music", with one of the following file extensions:
+# .mp3, .wav, .ogg and a BPM file named "song.txt".
+#
+# The first line of song.txt must be the music offset of the song (in seconds, negative = early, positive = late).
+# The rest are BPMs for the song.
+# Make sure to have a BPM at beat 0.
+#
+# Example (the Monody song.txt):
+#
+# -0.05
+# 0.000000:67.500000:bpm
+# 13.000000:107.000000:bpm
+
+Monody
+TheFatRat (feat. Laura Brehm)
+
+Chaoz Fantasy
+ParagonX9
+
+#Invincible
+#DEAF KEV
+
+#Peer Gynt
+#cYsmix
+
+#Ground Zero
+#Dex Arson
+
+#Cosmic Growl
+#DJVI
+
+#Outbreaker
+#Hinkik
+
+#Bloom
+#EnV
+
+#Adventure Fantasy
+#F-777
+
+#At the Speed of Light
+#Dimrain47
