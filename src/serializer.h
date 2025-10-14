@@ -167,6 +167,9 @@ class Serializer
         // Gets the compressed beat of an X value. The `lastMb` value is set to the `minibeats` value at the end.
         std::string getCompressedBeat(minibeat minibeats, minibeat& lastMb, std::vector<SerializerError>& errors);
 
+        // Deserializes a compressed ball file and returns the balls and other things associated within the file.
+        SerializerResult readCompressedBallfile(char *contents, size_t byteCount);
+
         // Saves a compressed ball file by returning string contents.
         std::string saveCompressedBallfile(size_t musicId, std::vector<Ball> &balls, std::vector<PaddleWidthChange> &paddleWidthChanges, std::vector<PaddleSpeedChange> &paddleSpeedChange, std::vector<PaddleDualChange>& paddleDualChanges);
 

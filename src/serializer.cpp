@@ -665,6 +665,49 @@ SerializerResult Serializer::readSongList(std::filesystem::path basePath)
     }
 }
 
+SerializerResult Serializer::readCompressedBallfile(char *contents, size_t byteCount)
+{
+    // Start parsing.
+    this->errors.clear();
+    this->lines.clear();
+    this->bpmChanges.clear();
+    this->paddleWidthChanges.clear();
+    this->paddleSpeedChanges.clear();
+    this->paddleDualChanges.clear();
+
+    std::vector<Ball> balls;
+
+    if (errors.empty())
+    {
+        SerializerSuccess success {
+            balls,
+            this->bpmChanges,
+            this->paddleWidthChanges,
+            this->paddleSpeedChanges,
+            this->paddleDualChanges,
+            (float) NAN
+        };
+        // Return errors.
+        SerializerResult result {
+            std::in_place_type<SerializerSuccess>,
+            success
+        };
+        return result;
+    }
+    else
+    {
+        SerializerFailure failure {
+            this->errors
+        };
+        // Return errors.
+        SerializerResult result {
+            std::in_place_type<SerializerFailure>,
+            failure
+        };
+        return result;
+    }
+}
+
 std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball> &balls, std::vector<PaddleWidthChange> &paddleWidthChanges, std::vector<PaddleSpeedChange> &paddleSpeedChanges, std::vector<PaddleDualChange>& paddleDualChanges)
 {
     std::string output = (musicId < 10 ? "0" : "") + std::to_string(musicId);
