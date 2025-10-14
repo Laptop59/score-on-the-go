@@ -28,7 +28,7 @@ build_windows.bat
 # For the web (Windows)
 build_web_windows.bat
 ```
-- For the web, make sure to install the `emsdk` and make it accessiblt to the terminal: https://emscripten.org/docs/getting_started/downloads.html
+- For the web, make sure to install the `emsdk` and make it accessible to the terminal: https://emscripten.org/docs/getting_started/downloads.html
 - For native platforms and for Windows, you can replace `build` with `test` to also open the built executable. This is preferable for testing some new code.
 > **NOTE:** I have only tested them with Linux (so take the rest with a grain of salt!)
 
