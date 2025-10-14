@@ -426,12 +426,14 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount, bool
                     {
                         BallTypeHold subtype = std::get<BallTypeHold>(type);
                         subtype.points = points;
+                        subtype.hit = false;
                         type = subtype;
                     }
                     else if (std::holds_alternative<BallTypePit>(type))
                     {
                         BallTypePit subtype = std::get<BallTypePit>(type);
                         subtype.points = points;
+                        subtype.hit = false;
                         type = subtype;
                     }
                 }
@@ -446,7 +448,7 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount, bool
 
     if (errors.empty())
     {
-        SerializerSuccess success {
+        SerializerSuccessFromBallFile success {
             balls,
             this->bpmChanges,
             this->paddleWidthChanges,
@@ -456,7 +458,7 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount, bool
         };
         // Return errors.
         SerializerResult result {
-            std::in_place_type<SerializerSuccess>,
+            std::in_place_type<SerializerSuccessFromBallFile>,
             success
         };
         return result;
@@ -665,49 +667,6 @@ SerializerResult Serializer::readSongList(std::filesystem::path basePath)
     }
 }
 
-SerializerResult Serializer::readCompressedBallfile(char *contents, size_t byteCount)
-{
-    // Start parsing.
-    this->errors.clear();
-    this->lines.clear();
-    this->bpmChanges.clear();
-    this->paddleWidthChanges.clear();
-    this->paddleSpeedChanges.clear();
-    this->paddleDualChanges.clear();
-
-    std::vector<Ball> balls;
-
-    if (errors.empty())
-    {
-        SerializerSuccess success {
-            balls,
-            this->bpmChanges,
-            this->paddleWidthChanges,
-            this->paddleSpeedChanges,
-            this->paddleDualChanges,
-            (float) NAN
-        };
-        // Return errors.
-        SerializerResult result {
-            std::in_place_type<SerializerSuccess>,
-            success
-        };
-        return result;
-    }
-    else
-    {
-        SerializerFailure failure {
-            this->errors
-        };
-        // Return errors.
-        SerializerResult result {
-            std::in_place_type<SerializerFailure>,
-            failure
-        };
-        return result;
-    }
-}
-
 std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball> &balls, std::vector<PaddleWidthChange> &paddleWidthChanges, std::vector<PaddleSpeedChange> &paddleSpeedChanges, std::vector<PaddleDualChange>& paddleDualChanges)
 {
     std::string output = (musicId < 10 ? "0" : "") + std::to_string(musicId);
@@ -806,7 +765,7 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
         if (i == orderableItems.size()) measureEnd = orderableItems.size();
 
         // Skip this measure if nothing is inside it.
-        if (measureEnd == measureStart + 1)
+        if (measureEnd == measureStart)
         {
             measuresSkipped++;
             continue;
@@ -818,6 +777,7 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
             if (measuresSkipped == 1) output += "00";
             else
             {
+                measuresSkipped++;
                 std::string measuresSkippedStr = std::to_string(measuresSkipped);
                 output += "9" + std::to_string(measuresSkippedStr.size() - 1) + measuresSkippedStr; 
             }
@@ -829,7 +789,10 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
         for (x = 0; x < 10; x++)
         {
             next_x:
-            if (x == 10) continue; // failsafe, should not happen as (any num) % 1 is always 0.
+            if (x == 10) {
+                q = 1;
+                continue; // failsafe, should not happen as (any num) % 1 is always 0.
+            }
             q = quantizations[x];
             for (int i = measureStart; i < measureEnd; i++)
             {
@@ -842,8 +805,8 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
             // This quantization works!
             break;
         }
-        // Specify this.
-        output += "0" + std::to_string(x);
+        // Specify this. Handle only giving a unit beat quantization after a '9L...' macrocode.
+        output += (measuresSkipped > 0 ? "" : "0") + std::to_string(x);
 
         // Now encode each item within this measure.
         size_t unitBeatsPassed = 0;
@@ -852,7 +815,7 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
             OrderableBallfileItem& item = orderableItems.at(i);
 
             // We always add the unit beat first.
-            size_t nextPassed = getMinibeatOfOrderable(orderableItems.at(i)) % (MINIBEATS_PER_BEAT * 4);
+            size_t nextPassed = (getMinibeatOfOrderable(orderableItems.at(i)) % (MINIBEATS_PER_BEAT * 4)) / q;
             size_t delta = nextPassed - unitBeatsPassed;
             // Ɐ uB < 200
             if (delta >= 200) errors.push_back(SerializerError {0, "Assertion failed: delta < 200"});
@@ -879,7 +842,7 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
                 case 15: { unitBeatStr = "78"; break; }
                 case 16: { unitBeatStr = "79"; break; }
             }
-            if (unitBeatStr.empty()) unitBeatStr = ((delta >= 100 ? "8" : "9") + (delta % 100));
+            if (unitBeatStr.empty()) unitBeatStr = ((delta >= 100 ? "8" : "9") + std::to_string(delta % 100));
             unitBeatsPassed = nextPassed;
 
             // Use a case-by-case basis for each type of item.
@@ -905,7 +868,7 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
                 if (!(1 < speedInt && speedInt < 10000)) errors.push_back(SerializerError {0, "Assertion failed: 0.001 < ball.speed < 10"});
                 if (speedInt % 100 == 0 && speedInt <= 4000)
                 {
-                    output += std::to_string(speedInt / 100 - 1);
+                    output += (speedInt <= 1000 ? "0" : "") + std::to_string(speedInt / 100 - 1);
                 }
                 else if (speedInt % 10 == 0 && speedInt <= 5000)
                 {
@@ -936,9 +899,9 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
                 if (std::holds_alternative<BallTypeBouncy>(ball.type))
                 {
                     auto bouncy = std::get<BallTypeBouncy>(ball.type);
-                    int r = bouncy.respawns;
-                    // Ɐ 1 <= r <= 100
-                    if (!(1 <= r && r <= 100)) errors.push_back(SerializerError {0, "Assertion failed: 1 <= r <= 100"});
+                    int r = bouncy.respawns - 1;
+                    // Ɐ 0 <= RR <= 99
+                    if (!(0 <= r && r <= 99)) errors.push_back(SerializerError {0, "Assertion failed: 0 <= RR <= 99"});
                     output += (r < 10 ? "0" : "") + std::to_string(r);
                     minibeat lastMb = 0;
                     output += getCompressedBeat(bouncy.interval, lastMb, errors);
@@ -1010,23 +973,345 @@ minibeat Serializer::getMinibeatOfOrderable(OrderableBallfileItem& item)
 
 SerializerResult Serializer::readCompressedBallfile(char *contents, size_t byteCount)
 {
-    size_t i = 0;
-    char ch;
-    std::vector<char> chars;
-    while (i < byteCount)
+    this->char_i = 0;
+    this->chars.clear();
+    this->errors.clear();
+    while (this->char_i < byteCount)
     {
-        ch = contents[i++];
-        chars.push_back(ch);
+        char ch = contents[this->char_i++];
+        if (ch >= '0' && ch <= '9')
+            this->chars.push_back(ch);
+        else if (ch != '\n' && ch != '\r')
+            this->errors.push_back(SerializerError {1, "Invalid encoded character: `" + std::string(1, ch) + "`"});
     }
-    
-    /* for (i = 0; i < chars.size(); i++)
+
+    if (!this->errors.empty())
     {
-        char macroCodeId = chars.at(i);
-        switch (macroCodeId) {
-            case '0':
-            default: 
+        // Return errors.
+        return SerializerResult {
+            std::in_place_type<SerializerFailure>,
+            SerializerFailure {this->errors}
+        };
+    }
+
+    this->balls.clear();
+    this->bpmChanges.clear();
+    this->paddleWidthChanges.clear();
+    this->paddleSpeedChanges.clear();
+    this->paddleDualChanges.clear();
+    this->char_i = 0;
+
+    currentMeasure = -1_ub;
+    mbPerUb = -1_mb;
+    currentUb = 0_ub;
+    currentDualStatus = false;
+    size_t song;
+
+    try
+    {
+        song = parseTwoDigitNumber();
+        while (char_i < chars.size())
+        {
+            char action = parseConsumeChar();
+            switch (action)
+            {
+                case '0':
+                    {
+                        currentMeasure += 1;
+                        size_t newRateId = parseOneDigitNumber();
+                        mbPerUb = CONVERSION_RATES[newRateId];
+                        currentUb = 0;
+                    }
+                    break;
+
+                case '1':
+                    parseUnitBall(false);
+                    break;
+
+                case '2':
+                    parseUnitBall(true);
+                    break;
+
+                case '3':
+                    parseTailedBall(false);
+                    break;
+
+                case '4':
+                    parseTailedBall(true);
+                    break;
+
+                case '5':
+                    {
+                        Ball ball(this->parseUxs());
+                        size_t respawns = parseTwoDigitNumber() + 1;
+                        size_t len = parseOneDigitNumber() + 1;
+                        minibeat interval = parseNumber(len);
+                        ball.type = BallTypeBouncy {
+                            respawns, interval, -INFINITY
+                        };
+                        this->balls.push_back(ball);
+                    }
+                    break;
+
+                case '6':
+                    // Paddle width change
+                    {
+                        minibeat mb = parseDeltaUbConvertToMb();
+                        float width = parseNumber(3);
+                        if (width < 0 || width > 454)
+                        {
+                            this->errors.push_back(SerializerError {
+                                1, "Width of paddle width change is out of range: " + std::to_string(width)
+                            });
+                        }
+                        this->paddleWidthChanges.push_back(PaddleWidthChange {
+                            Ball::toBeats(mb),
+                            width
+                        });
+                    }
+                    break;
+
+                case '7':
+                    // Paddle speed change
+                    {
+                        minibeat mb = parseDeltaUbConvertToMb();
+                        float speed = parseNumber(3);
+                        speed /= 2;
+                        if (speed < 0 || speed > 499.5)
+                        {
+                            this->errors.push_back(SerializerError {
+                                1, "Speed of paddle speed change is out of range: " + std::to_string(speed)
+                            });
+                        }
+                        this->paddleSpeedChanges.push_back(PaddleSpeedChange {
+                            Ball::toBeats(mb),
+                            speed
+                        });
+                    }
+                    break;
+
+                case '8':
+                    // Dual change
+                    {
+                        minibeat mb = parseDeltaUbConvertToMb();
+                        currentDualStatus = !currentDualStatus;
+                        this->paddleDualChanges.push_back(PaddleDualChange {
+                            Ball::toBeats(mb),
+                            currentDualStatus
+                        });
+                    }
+                    break;
+
+                case '9':
+                    size_t len = parseOneDigitNumber() + 1;
+                    size_t count = parseNumber(len);
+                    currentMeasure += count;
+                    size_t newRateId = parseOneDigitNumber();
+                    mbPerUb = CONVERSION_RATES[newRateId];
+                    currentUb = 0;
+                    
+                    break;
+            }
         }
-    } */
+    }
+    catch (const std::runtime_error& e)
+    {
+        this->errors.push_back(SerializerError {
+            1, "ABORTED parsing due to exception: " + std::string(e.what())
+        });
+    }
+    catch (...)
+    {
+        this->errors.push_back(SerializerError {
+            1, "ABORTED parsing due to unknown exception"
+        });
+    }
+
+    if (!this->errors.empty())
+    {
+        // Return errors.
+        return SerializerResult {
+            std::in_place_type<SerializerFailure>,
+            SerializerFailure {this->errors}
+        };
+    }
+
+    return SerializerResult {
+        std::in_place_type<SerializerSuccessFromDecoding>,
+        SerializerSuccessFromDecoding {
+            this->balls,
+            this->paddleWidthChanges,
+            this->paddleSpeedChanges,
+            this->paddleDualChanges,
+            song
+        }
+    };
+}
+
+void Serializer::parseUnitBall(bool isMineLike)
+{
+    Ball ball(this->parseUxs());
+    if (isMineLike)
+        ball.type = BallTypeMine {};
+    this->balls.push_back(ball);
+}
+
+void Serializer::parseTailedBall(bool isMineLike)
+{
+    Ball ball(this->parseUxs());
+    auto nodes = parseNodes();
+    if (isMineLike)
+        ball.type = BallTypePit {nodes, false};
+    else
+        ball.type = BallTypeHold {nodes, false};
+    this->balls.push_back(ball);
+}
+
+Mxs Serializer::parseUxs()
+{
+    minibeat ub = parseDeltaUbConvertToMb();
+    float x = parseX();
+    float speed = parseSpeed();
+
+    return Mxs {ub, x, speed};
+}
+
+minibeat Serializer::parseDeltaUbConvertToMb()
+{
+    unitbeat deltaUb = parseUb();
+    currentUb += deltaUb;
+    return currentUb * mbPerUb + currentMeasure * MINIBEATS_PER_BEAT * 4;
+}
+
+minibeat Serializer::parseUbConvertToMb()
+{
+    return parseUb() * mbPerUb;
+}
+
+unitbeat Serializer::parseUb()
+{
+    if (mbPerUb == -1_ub)
+        throw std::runtime_error("A measure was not started yet");
+    
+    size_t first = parseOneDigitNumber(); 
+
+    if (first < 7)
+        return UNITBEATS[first];
+    else if (first == 7)
+        return UNITBEATS_7[parseOneDigitNumber()];
+    else if (first <= 9)
+    {
+        size_t ub = parseTwoDigitNumber();
+        if (first == 9)
+            ub += 100;
+        return ub;
+    }
+    else
+        throw std::runtime_error("invalid char encountered (must be digit)");
+}
+
+float Serializer::parseX()
+{
+    return (float) ((int) parseNumber(3) - 500) / 2.0;
+}
+
+float Serializer::parseSpeed()
+{
+    size_t first = parseOneDigitNumber();
+    size_t second = parseOneDigitNumber();
+    if (first <= 3)
+        return (float) (10 * first + second + 1) / 10.0;
+
+    size_t third = parseOneDigitNumber();
+    if (first <= 8)
+        return (float) (100 * (first - 4) + 10 * second + third + 1) / 100.0;
+
+    size_t remaining = parseTwoDigitNumber();
+    return (1000 * second + 100 * third + remaining + 1) / 1000.0;
+}
+
+std::vector<BallTypeTailPoint> Serializer::parseNodes()
+{
+    std::vector<BallTypeTailPoint> nodes;
+    minibeat currentMb = 0;
+
+    while (parsePeekChar() != '9')
+    {
+        size_t len = parseOneDigitNumber() + 1;
+        minibeat mb = currentMb + parseNumber(len);
+        currentMb = mb;
+        nodes.push_back(BallTypeTailPoint {
+            parseX(), 
+            mb
+        });
+    }
+    parseConsumeChar();
+
+    return nodes;
+}
+
+char Serializer::parseConsumeChar()
+{
+    if (1 + char_i > chars.size())
+    {
+        throw std::runtime_error("There is no more char to be consumed");
+    }
+    size_t i = char_i;
+    char_i++;
+    return chars.at(i);
+}
+
+char Serializer::parsePeekChar()
+{
+    if (1 + char_i > chars.size())
+    {
+        throw std::runtime_error("There is no more char to be peeked");
+    }
+    return chars.at(char_i);
+}
+
+size_t Serializer::parseOneDigitNumber()
+{
+    return parseConsumeChar() - '0';
+}
+
+size_t Serializer::parseTwoDigitNumber()
+{
+    size_t tens = parseOneDigitNumber();
+    return tens * 10 + parseOneDigitNumber();
+}
+
+size_t Serializer::parseNumber(size_t digits)
+{
+    size_t result = 0;
+    for (size_t i = 0; i < digits; i++)
+    {
+        result = result * 10 + parseOneDigitNumber();
+    }
+    return result;
+}
+
+std::string Serializer::parseConsumeMany(size_t charsNum)
+{
+    if (charsNum + char_i > chars.size())
+    {
+        throw std::runtime_error("There were less characters left than the amount to be consumed");
+    }
+    auto ptr = chars.begin() + char_i;
+    std::string result(ptr, ptr + charsNum);
+    char_i += charsNum;
+    return result;
+}
+
+std::string Serializer::parsePeekMany(size_t charsNum)
+{
+    if (charsNum + char_i > chars.size())
+    {
+        throw std::runtime_error("There were less characters left than the amount to be peeked");
+    }
+    auto ptr = chars.begin() + char_i;
+    std::string result(ptr, ptr + charsNum);
+    return result;
 }
 
 bool Serializer::readCompressedFileChars(std::vector<char>& vector, size_t n, size_t& i, std::string& destStr)

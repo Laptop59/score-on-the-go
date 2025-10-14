@@ -5,6 +5,14 @@
 #include <variant>
 #include <vector>
 
+// Represents minibeat, x pos and speed in the same structure.
+struct Mxs
+{
+    minibeat minibeat;
+    float x;
+    float speed;
+};
+
 // Type of a normal ball.
 struct BallTypeNormal {};
 
@@ -78,6 +86,9 @@ class Ball
 
         // Creates a normal ball with a minibeat.
         Ball(minibeat at, float speed, float x);
+
+        // Creates a normal ball using an Uxs.
+        Ball(Mxs uxs);
 
         // Creates a normal ball with a double, converted to a minibeat.
         Ball(double at, float speed, float x);

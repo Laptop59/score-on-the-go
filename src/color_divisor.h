@@ -8,6 +8,9 @@
 // Unsigned type for minibeat (Note: 48 minibeats = 1 beat)
 using minibeat = uint32_t;
 
+// Unsigned type for unitbeat
+using unitbeat = uint32_t;
+
 // Signed type for minibeat (Note: 48 minibeats = 1 beat)
 using sminibeat = int32_t;
 
@@ -147,5 +150,9 @@ inline sminibeat operator ""_smb(unsigned long long value)
     return static_cast<sminibeat>(value);
 }
 
+inline minibeat operator ""_ub(unsigned long long value)
+{
+    return static_cast<unitbeat>(value);
+}
 
 #endif

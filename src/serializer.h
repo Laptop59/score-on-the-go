@@ -20,8 +20,8 @@ struct EditSong
 };
 
 
-// Represents a serializer success.
-struct SerializerSuccess
+// Represents a serializer success from a ballfile.
+struct SerializerSuccessFromBallFile
 {
     std::vector<Ball> balls;
     std::vector<BpmChange> bpmChanges;
@@ -29,6 +29,16 @@ struct SerializerSuccess
     std::vector<PaddleSpeedChange> paddleSpeedChanges;
     std::vector<PaddleDualChange> paddleDualChanges;
     float musicOffset;
+};
+
+// Represents a serializer success from decoding.
+struct SerializerSuccessFromDecoding
+{
+    std::vector<Ball> balls;
+    std::vector<PaddleWidthChange> paddleWidthChanges;
+    std::vector<PaddleSpeedChange> paddleSpeedChanges;
+    std::vector<PaddleDualChange> paddleDualChanges;
+    size_t song;
 };
 
 // Represents a serializer success for songs.txt.
@@ -51,7 +61,7 @@ struct SerializerFailure
 };
 
 // Represents a result from the serializer.
-using SerializerResult = std::variant<SerializerSuccess, SerializerSongListSuccess, SerializerFailure>;
+using SerializerResult = std::variant<SerializerSuccessFromBallFile, SerializerSongListSuccess, SerializerSuccessFromDecoding, SerializerFailure>;
 
 // Represents any orderable item (macrocode) in compressed ballfile data.
 using OrderableBallfileItem = std::variant<Ball, BpmChange, PaddleWidthChange, PaddleSpeedChange, PaddleDualChange>;
@@ -68,16 +78,65 @@ const std::string paddleSpeedString = "ps";
 // Used in parsing ballfiles for dual changes.
 const std::string paddleDualString = "dual";
 
+const minibeat CONVERSION_RATES[] = {96, 48, 24, 16, 12, 8, 6, 4, 3, 1};
+const unitbeat UNITBEATS[] = {0, 1, 2, 3, 4, 6, 8};
+const unitbeat UNITBEATS_7[] = {5, 7, 9, 10, 11, 12, 13, 14, 15, 16};
+
 class Serializer
 {
     private:
         size_t line;
+        size_t char_i;
+
+        size_t currentMeasure;
+        minibeat mbPerUb;
+        unitbeat currentUb;
+        bool currentDualStatus;
+
         std::vector<std::vector<char>> lines;
+        std::vector<Ball> balls;
         std::vector<BpmChange> bpmChanges;
         std::vector<PaddleWidthChange> paddleWidthChanges;
         std::vector<PaddleSpeedChange> paddleSpeedChanges;
         std::vector<PaddleDualChange> paddleDualChanges;
         std::vector<Command> commands;
+        std::vector<char> chars;
+
+        char parseConsumeChar();
+        char parsePeekChar();
+
+        size_t parseOneDigitNumber();
+        size_t parseTwoDigitNumber();
+        size_t parseNumber(size_t digits);
+
+        std::string parseConsumeMany(size_t chars);
+        std::string parsePeekMany(size_t chars);
+
+        void parseNewMeasure();
+
+        // Parses a normal ball or mine.
+        void parseUnitBall(bool isMineLike);
+
+        // Parses a hold or pit.
+        void parseTailedBall(bool isMineLike);
+
+        // Parses a mini beat, x-pos and speed as one object.
+        Mxs parseUxs();
+
+        // Parses unitbeats which are then multiplied to give minibeats.
+        minibeat parseUbConvertToMb();
+
+        // Parses delta unitbeats which are then multiplied to give minibeats.
+        minibeat parseDeltaUbConvertToMb();
+
+        // Parses unitbeats.
+        unitbeat parseUb();
+
+        float parseX();
+
+        float parseSpeed();
+
+        std::vector<BallTypeTailPoint> parseNodes();
 
     public:
         std::vector<SerializerError> errors;
@@ -166,9 +225,6 @@ class Serializer
 
         // Gets the compressed beat of an X value. The `lastMb` value is set to the `minibeats` value at the end.
         std::string getCompressedBeat(minibeat minibeats, minibeat& lastMb, std::vector<SerializerError>& errors);
-
-        // Deserializes a compressed ball file and returns the balls and other things associated within the file.
-        SerializerResult readCompressedBallfile(char *contents, size_t byteCount);
 
         // Saves a compressed ball file by returning string contents.
         std::string saveCompressedBallfile(size_t musicId, std::vector<Ball> &balls, std::vector<PaddleWidthChange> &paddleWidthChanges, std::vector<PaddleSpeedChange> &paddleSpeedChange, std::vector<PaddleDualChange>& paddleDualChanges);

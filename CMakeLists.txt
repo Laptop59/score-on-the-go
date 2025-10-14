@@ -200,6 +200,8 @@ elseif(EMSCRIPTEN)
         "--shell-file" "${CMAKE_CURRENT_LIST_DIR}/shell.html"
         # Loading music can exceed the limit of memory arrays.
         "-sALLOW_MEMORY_GROWTH"
+        # Allow catching exceptions.
+        "-sNO_DISABLE_EXCEPTION_CATCHING"
     )
 
 else()
