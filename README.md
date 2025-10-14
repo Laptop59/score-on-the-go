@@ -16,7 +16,7 @@ This editor adds the required SDL3 modules (`SDL`, `SDL_ttf`, `SDL_image`, `SDL_
 Run the following once to compile the program with its source code:
 ```
 git clone https://github.com/Laptop59/score-on-the-go --depth=1 --recurse-submodules
-cd sdl3-sample
+cd score-on-the-go
 
 ## From here, choose your appropriate script:
 # For Windows
