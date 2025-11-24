@@ -216,12 +216,12 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount, bool
     while (i < byteCount)
     {
         ch = contents[i++];
-        if (ch == '\n' && !charsInLine.empty())
+        if ((ch == '\n' || ch == ' ') && !charsInLine.empty())
         {
             this->lines.push_back(charsInLine);
             charsInLine.clear();
         }
-        else if (ch == '\r' || ch == ' ')
+        else if (ch == '\r')
             ;
         else
         {
@@ -452,7 +452,8 @@ SerializerResult Serializer::readBallfile(char *contents, size_t byteCount, bool
             this->paddleWidthChanges,
             this->paddleSpeedChanges,
             this->paddleDualChanges,
-            (float) musicOffset
+            (float) musicOffset,
+            0 // unused
         };
         // Return errors.
         SerializerResult result {
@@ -553,12 +554,12 @@ void Serializer::readLines(char *contents, size_t byteCount)
     while (i < byteCount)
     {
         ch = contents[i++];
-        if (ch == '\n' && !charsInLine.empty())
+        if ((ch == '\n' || ch == ' ') && !charsInLine.empty())
         {
             this->lines.push_back(charsInLine);
             charsInLine.clear();
         }
-        else if (ch == '\r' || ch == ' ')
+        else if (ch == '\r')
             ;
         else
         {
@@ -614,13 +615,13 @@ SerializerResult Serializer::readSongList(std::filesystem::path basePath)
                 std::getline(in, fileLine); // Skip the author as well.
                 continue;
             }
-            if (!std::filesystem::exists(folder / "music.ogg") && !std::filesystem::exists(folder / "music.wav") && !std::filesystem::exists(folder / "music.mp3")) {
-                errors.push_back({i, "Got song named '" + fileLine + "', but couldn't find its music file! Skipping..."});
+            if (!std::filesystem::exists(folder / "song.txt")) {
+                errors.push_back({i, "Got song named '" + fileLine + "', but couldn't find its song.txt file! Skipping..."});
                 std::getline(in, fileLine); // Skip the author as well.
                 continue;
             }
-            if (!std::filesystem::exists(folder / "song.txt")) {
-                errors.push_back({i, "Got song named '" + fileLine + "', but couldn't find its song.txt file! Skipping..."});
+            if (!std::filesystem::exists(folder / "music.ogg") && !std::filesystem::exists(folder / "music.wav") && !std::filesystem::exists(folder / "music.mp3")) {
+                errors.push_back({i, "Got song named '" + fileLine + "', but couldn't find its music file! Skipping..."});
                 std::getline(in, fileLine); // Skip the author as well.
                 continue;
             }
@@ -631,6 +632,7 @@ SerializerResult Serializer::readSongList(std::filesystem::path basePath)
             song.author = fileLine;
             // Add this to the list of songs.
             editSongs.push_back(song);
+            SDL_Log("added %s - %s", song.song.c_str(), song.author.c_str());
             song = {"", ""};
         }
         l++;
@@ -647,49 +649,6 @@ SerializerResult Serializer::readSongList(std::filesystem::path basePath)
         // Return errors.
         SerializerResult result {
             std::in_place_type<SerializerSongListSuccess>,
-            success
-        };
-        return result;
-    }
-    else
-    {
-        SerializerFailure failure {
-            this->errors
-        };
-        // Return errors.
-        SerializerResult result {
-            std::in_place_type<SerializerFailure>,
-            failure
-        };
-        return result;
-    }
-}
-
-SerializerResult Serializer::readCompressedBallfile(char *contents, size_t byteCount)
-{
-    // Start parsing.
-    this->errors.clear();
-    this->lines.clear();
-    this->bpmChanges.clear();
-    this->paddleWidthChanges.clear();
-    this->paddleSpeedChanges.clear();
-    this->paddleDualChanges.clear();
-
-    std::vector<Ball> balls;
-
-    if (errors.empty())
-    {
-        SerializerSuccess success {
-            balls,
-            this->bpmChanges,
-            this->paddleWidthChanges,
-            this->paddleSpeedChanges,
-            this->paddleDualChanges,
-            (float) NAN
-        };
-        // Return errors.
-        SerializerResult result {
-            std::in_place_type<SerializerSuccess>,
             success
         };
         return result;
@@ -781,10 +740,6 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
     
     size_t measuresSkipped = 0;
 
-    const minibeat quantizations[] = {
-        96, 48, 24, 16, 12, 8, 6, 4, 3, 1
-    };
-
     while (i < orderableItems.size())
     {
         // Go to the next measure.
@@ -796,7 +751,7 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
         while (i < orderableItems.size())
         {
             OrderableBallfileItem& item = orderableItems.at(i);
-            double beat = getMinibeatOfOrderable(item) / MINIBEATS_PER_BEAT;
+            double beat = Ball::toBeats(getMinibeatOfOrderable(item));
             if (beat >= (measure + 1) * 4) {
                 measureEnd = i;
                 break;
@@ -853,7 +808,7 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
 
             // We always add the unit beat first.
             size_t nextPassed = getMinibeatOfOrderable(orderableItems.at(i)) % (MINIBEATS_PER_BEAT * 4);
-            size_t delta = nextPassed - unitBeatsPassed;
+            size_t delta = (nextPassed - unitBeatsPassed) / q;
             // Ɐ uB < 200
             if (delta >= 200) errors.push_back(SerializerError {0, "Assertion failed: delta < 200"});
             std::string unitBeatStr = "";
@@ -879,7 +834,7 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
                 case 15: { unitBeatStr = "78"; break; }
                 case 16: { unitBeatStr = "79"; break; }
             }
-            if (unitBeatStr.empty()) unitBeatStr = ((delta >= 100 ? "8" : "9") + (delta % 100));
+            if (unitBeatStr.empty()) unitBeatStr = ((delta >= 100 ? "9" : "8") + std::to_string(delta % 100));
             unitBeatsPassed = nextPassed;
 
             // Use a case-by-case basis for each type of item.
@@ -905,7 +860,7 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
                 if (!(1 < speedInt && speedInt < 10000)) errors.push_back(SerializerError {0, "Assertion failed: 0.001 < ball.speed < 10"});
                 if (speedInt % 100 == 0 && speedInt <= 4000)
                 {
-                    output += std::to_string(speedInt / 100 - 1);
+                    output += (speedInt <= 1000 ? "0" : "") + std::to_string(speedInt / 100 - 1);
                 }
                 else if (speedInt % 10 == 0 && speedInt <= 5000)
                 {
@@ -937,8 +892,8 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
                 {
                     auto bouncy = std::get<BallTypeBouncy>(ball.type);
                     int r = bouncy.respawns;
-                    // Ɐ 1 <= r <= 100
-                    if (!(1 <= r && r <= 100)) errors.push_back(SerializerError {0, "Assertion failed: 1 <= r <= 100"});
+                    // Ɐ 1 <= r <= 99
+                    if (!(1 <= r && r <= 99)) errors.push_back(SerializerError {0, "Assertion failed: 1 <= r <= 99"});
                     output += (r < 10 ? "0" : "") + std::to_string(r);
                     minibeat lastMb = 0;
                     output += getCompressedBeat(bouncy.interval, lastMb, errors);
@@ -973,6 +928,7 @@ std::string Serializer::saveCompressedBallfile(size_t musicId, std::vector<Ball>
             }
         }
         measuresSkipped = 0; // Reset this counter.
+        if (measureEnd == orderableItems.size()) break;
     }
 
     return output;
@@ -1010,23 +966,258 @@ minibeat Serializer::getMinibeatOfOrderable(OrderableBallfileItem& item)
 
 SerializerResult Serializer::readCompressedBallfile(char *contents, size_t byteCount)
 {
+    // Start parsing.
+    this->errors.clear();
+    this->lines.clear();
+    this->bpmChanges.clear();
+    this->paddleWidthChanges.clear();
+    this->paddleSpeedChanges.clear();
+    this->paddleDualChanges.clear();
+
+    std::vector<Ball> balls;
+
     size_t i = 0;
     char ch;
-    std::vector<char> chars;
+    std::vector<char> chars = {};
     while (i < byteCount)
     {
         ch = contents[i++];
         chars.push_back(ch);
     }
+
+    minibeat beat = 0;
+    size_t measure = -1;
+    size_t unitBeatMul = 1;
+    bool lastDualState = false;
+
+    uint32_t musicId;
+
+    std::string parseError;
     
-    /* for (i = 0; i < chars.size(); i++)
-    {
-        char macroCodeId = chars.at(i);
-        switch (macroCodeId) {
-            case '0':
-            default: 
+    try {
+        std::string musicIdStr = "";
+        musicIdStr += chars.at(0);
+        musicIdStr += chars.at(1);
+        if (!checkIsUnsignedInt(musicIdStr, musicId)) {
+            errors.push_back(SerializerError {0, "Invalid music ID: " + musicIdStr});
         }
-    } */
+
+        for (i = 2; i < chars.size(); i++)
+        {
+            char macroCodeId = chars.at(i);
+            if (macroCodeId == ' ' || macroCodeId == '\n') continue;
+            if (!checkIsDigit(macroCodeId)) {
+                std::string macroCodeErrorStr = "Invalid digit for macrocode ID: ";
+                macroCodeErrorStr += macroCodeId;
+                errors.push_back(SerializerError {i, macroCodeErrorStr});
+            }
+            switch (macroCodeId) {
+                case '0':
+                {
+                    // Update the measure counter.
+                    measure++;
+                    beat = measure * MINIBEATS_PER_BEAT * 4;
+                    // Get the unit beat conversion rate.
+                    char no = chars.at(++i);
+                    uint8_t noDigit;
+                    if (!checkIsDigit(no, noDigit)) {
+                        std::string error = "Invalid digit for measure unit beat conversion: ";
+                        error += no;
+                        errors.push_back(SerializerError {i, error});
+                    }
+                    unitBeatMul = quantizations[noDigit];
+                    break;
+                }
+                case '9':
+                {
+                    // Skip some measures.
+                    char lengthChar = chars.at(++i);
+                    uint8_t length;
+                    if (!checkIsDigit(lengthChar, length)) {
+                        errors.push_back(SerializerError {i, "Invalid digit for skipping measures: " + lengthChar});
+                    }
+                    length++; // to get the actual length
+                    std::string measures;
+                    for (size_t j = 0; j < length; j++) measures += chars.at(++i);
+                    // Skip the measures.
+                    uint32_t measuresInt;
+                    if (!checkIsUnsignedInt(measures, measuresInt)) {
+                        errors.push_back(SerializerError {i, "Invalid number of measures to skip: " + measuresInt});
+                    }
+                    measure += measuresInt;
+                    beat = measure * MINIBEATS_PER_BEAT * 4;
+                    break;
+                }                  
+                default:
+                {
+                    // Every other macrocode specifies a unit beat to start on.
+                    uint8_t posOffset;
+                    if (!parseUnitBeat(chars, i, posOffset, parseError))
+                        errors.push_back(SerializerError {i, "Invalid unit beat of a macrocode: " + parseError});
+                    beat += posOffset * unitBeatMul;
+                    double doubleBeat = Ball::toBeats(beat);
+                    // Check for non-ball macrocodes first.
+                    switch (macroCodeId) {
+                        case '6': // Paddle width change
+                        {
+                            std::string number = "";
+                            for (size_t j = 0; j < 3; j++) number.push_back(chars.at(++i));
+                            uint32_t width = 0;
+                            if (!checkIsUnsignedInt(number, width) || width > 454) {
+                                errors.push_back(SerializerError {i, "Invalid width: " + number});
+                            }
+                            paddleWidthChanges.push_back((PaddleWidthChange) {doubleBeat, (float) width});
+                            break;
+                        }
+                        case '7': // Paddle speed change
+                        {
+                            std::string number = "";
+                            for (size_t j = 0; j < 3; j++) number.push_back(chars.at(++i));
+                            uint32_t speed = 0;
+                            if (!checkIsUnsignedInt(number, speed)) {
+                                errors.push_back(SerializerError {i, "Invalid speed: " + number});
+                            }
+                            paddleSpeedChanges.push_back((PaddleSpeedChange) {doubleBeat, (float) (speed) / 2});
+                            break;
+                        }
+                        case '8': // Paddle dual change
+                        {
+                            lastDualState = !lastDualState;
+                            paddleDualChanges.push_back((PaddleDualChange) {doubleBeat, lastDualState});
+                            break;
+                        }
+                        default:
+                        {
+                            // Get a speed & x position.
+                            float x = 0;
+                            std::string errorStr;
+                            if (!parsePosition(chars, i, x, errorStr)) {
+                                errors.push_back(SerializerError {i, "Invalid (x) position for ball: " + errorStr});
+                            }
+
+                            uint32_t speed = 0;
+                            float speedFloat = 0;
+                            // Check the first 2 characters of the speed.
+                            char first = chars.at(++i);
+                            char second = chars.at(++i);
+                            std::string str = ""; str += first; str += second;
+                            if (first <= '4') {
+                                if (!checkIsUnsignedInt(str, speed))
+                                    errors.push_back(SerializerError {i, "Invalid 2-length speed value for ball: " + str});
+                                speedFloat = ((float) (speed + 1) / 10);
+                            } else {
+                                // Check the third digit.
+                                str += chars.at(++i);
+                                if (first <= '8') {
+                                    if (!checkIsUnsignedInt(str, speed))
+                                        errors.push_back(SerializerError {i, "Invalid 3-length speed value for ball: " + str});
+                                    speedFloat = ((float) (speed - 399) / 100);
+                                } else if (first == '9') {
+                                    // Check 2 more digits.
+                                    str += chars.at(++i);
+                                    str += chars.at(++i);
+                                    if (!checkIsUnsignedInt(str, speed))
+                                        errors.push_back(SerializerError {i, "Invalid 5-length speed value for ball: " + str});
+                                    speedFloat = ((float) (speed - 89999) / 10000);
+                                } else {
+                                    std::string firstStr(1, first);
+                                    errors.push_back(SerializerError {i, "Invalid header speed value for ball: " + firstStr});
+                                }
+                            }
+
+                            Ball ball(doubleBeat, speedFloat, x);
+                            // Now for specific ball type stuff.
+                            switch (macroCodeId) {
+                                case '1': ball.type = BallTypeNormal {}; break;
+                                case '2': ball.type = BallTypeMine {}; break;
+                                case '3': 
+                                case '4': // Holds/Pits
+                                {
+                                    std::vector<BallTypeTailPoint> points = {};
+                                    minibeat miniBeatTotal = 0;
+                                    while (chars.at(i+1) != '9')
+                                    {
+                                        // Parse a Δb & x value.
+                                        minibeat miniBeat;
+                                        if (!parseDeltaBeat(chars, i, miniBeat, parseError)) 
+                                            errors.push_back(SerializerError {i, "Invalid delta beat value for a hold/pit: " + parseError});
+                                        float x;
+                                        if (!parsePosition(chars, i, x, parseError)) 
+                                            errors.push_back(SerializerError {i, "Invalid position (x) value for a hold/pit: " + parseError});
+                                        // Finally, add a point.
+                                        miniBeatTotal += miniBeat;
+                                        points.push_back(BallTypeTailPoint {
+                                            (float) x, miniBeatTotal
+                                        });
+                                    }
+                                    i++; // Consume the 9.
+                                    if (macroCodeId == '3')
+                                        ball.type = BallTypeHold {points, false};
+                                    else
+                                        ball.type = BallTypePit {points, false};
+                                    break;
+                                }
+                                case '5': // Bouncy ball
+                                {
+                                    // Find the no.of respawns of this bouncy ball.
+                                    std::string respawns = "";
+                                    respawns += chars.at(++i); respawns += chars.at(++i);
+                                    uint32_t respawnsInt = 0;
+                                    if (!checkIsUnsignedInt(respawns, respawnsInt))
+                                        errors.push_back(SerializerError {i, "Invalid value for respawns: " + respawns});
+                                    if (respawnsInt < 0 || respawnsInt > 98)
+                                        errors.push_back(SerializerError {i, "Value of respawns of a bouncy ball is out of bounds (0 < respawns < 100): " + respawnsInt});
+                                    break;
+                                    // Find the beats between two hits of the ball on the paddle.
+                                    uint8_t interval;
+                                    if (!parseUnitBeat(chars, i, interval, parseError))
+                                        errors.push_back(SerializerError {i, "Invalid unit beat value for the interval of a bouncy ball: " + parseError});
+                                    ball.type = BallTypeBouncy {respawnsInt, interval, 0};
+                                }
+                            }
+                            balls.push_back(ball);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    } catch (std::out_of_range& e) {
+        errors.push_back(SerializerError {0, "Unexpected end of ballfile when trying to read a character."});
+    } catch (...) {
+        errors.push_back(SerializerError {0, "Exception while reading ballfile."});
+    }
+
+    if (errors.empty())
+    {
+        SerializerSuccess success {
+            balls,
+            this->bpmChanges,
+            this->paddleWidthChanges,
+            this->paddleSpeedChanges,
+            this->paddleDualChanges,
+            (float) NAN,
+            musicId + 1
+        };
+        // Return errors.
+        SerializerResult result {
+            std::in_place_type<SerializerSuccess>,
+            success
+        };
+        return result;
+    }
+    else
+    {
+        SerializerFailure failure {
+            this->errors
+        };
+        // Return errors.
+        SerializerResult result {
+            std::in_place_type<SerializerFailure>,
+            failure
+        };
+        return result;
+    }
 }
 
 bool Serializer::readCompressedFileChars(std::vector<char>& vector, size_t n, size_t& i, std::string& destStr)

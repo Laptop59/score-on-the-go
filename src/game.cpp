@@ -1418,26 +1418,26 @@ void Game::callbackSaveBallfilePicker(void* userdata, const char* path, int filt
             game->paddleSpeedChanges,
             game->paddleDualChanges
         );
-        if (!game->serializer->errors.empty())
-        {
-            std::string failMessage = "";
-            failMessage += "\n[ERRORS: " + std::to_string(game->serializer->errors.size()) + "]";
-            size_t errorsLeft = 16;
-            for (auto error = game->serializer->errors.begin(); error < game->serializer->errors.end(); ++error)
-            {
-                failMessage += "\n" + error->error; 
-                if (!--errorsLeft) break;
-            }
-            std::string errorMessage = std::string("Could not save ballfile: \n") + game->lastError;
-            SDL_ShowSimpleMessageBox(
-                SDL_MESSAGEBOX_ERROR,
-                NAME,
-                errorMessage.c_str(),
-                game->window
-            );
-            return;
-        }
     #endif
+    if (!game->serializer->errors.empty())
+    {
+        std::string failMessage = "";
+        failMessage += "\n[ERRORS: " + std::to_string(game->serializer->errors.size()) + "]";
+        size_t errorsLeft = 16;
+        for (auto error = game->serializer->errors.begin(); error < game->serializer->errors.end(); ++error)
+        {
+            failMessage += "\n" + error->error; 
+            if (!--errorsLeft) break;
+        }
+        std::string errorMessage = std::string("Could not save ballfile: \n") + game->lastError;
+        SDL_ShowSimpleMessageBox(
+            SDL_MESSAGEBOX_ERROR,
+            NAME,
+            errorMessage.c_str(),
+            game->window
+        );
+        return;
+    }
 
     // Attempt to save file.
     if (game->trySaveFile(path, text.c_str(), text.length(), "ballfile.txt"))
@@ -1561,8 +1561,19 @@ void Game::callbackLoadBallfilePicker(void* userdata, void* contents, int filter
     game->filePickerOpen = false;
     if (contents == NULL) return;
     char* text = (char *) contents;
-    SerializerResult result = game->serializer->readBallfile(text, sizeInBytes, false);
-    
+    bool isProbablyUncompressed = false;
+    size_t i = 0;
+    while (i < sizeInBytes)
+    {
+        char ch = text[i++];
+        if (ch == '\n' || ch == ':') {
+            isProbablyUncompressed = true;
+            break;
+        }
+    }
+    SerializerResult result = isProbablyUncompressed ?
+        game->serializer->readBallfile(text, sizeInBytes, false) :
+        game->serializer->readCompressedBallfile(text, sizeInBytes);
     if (std::holds_alternative<SerializerSuccess>(result))
     {
         SerializerSuccess success = std::get<SerializerSuccess>(result);
@@ -1571,9 +1582,11 @@ void Game::callbackLoadBallfilePicker(void* userdata, void* contents, int filter
         for (auto ball = success.balls.begin(); ball < success.balls.end(); ++ball)
             game->addBall(*ball);
 
-        game->bpmChanges.clear();
-        for (const auto& bpmChange : success.bpmChanges)
-            game->addBpmChange(bpmChange);
+        if (isProbablyUncompressed) {
+            game->bpmChanges.clear();
+            for (const auto& bpmChange : success.bpmChanges)
+                game->addBpmChange(bpmChange);
+        }
 
         game->paddleWidthChanges.clear();
         for (const auto& paddleWidthChange : success.paddleWidthChanges)
@@ -1588,6 +1601,16 @@ void Game::callbackLoadBallfilePicker(void* userdata, void* contents, int filter
             game->addPaddleDualChange(paddleDualChanges);
 
         game->commands.clear();
+
+        if (success.musicId > 0)
+        {
+            size_t newAppliedMusicId = success.musicId - 1;
+            if (newAppliedMusicId != game->appliedMusicId) {
+                game->musicId = newAppliedMusicId;
+                game->appliedMusicId = newAppliedMusicId;
+                game->applyNewEditSong();
+            }
+        }
 
         std::string successMessage = std::string("Successfully loaded a ball file with ");
         successMessage += std::to_string(success.balls.size());
@@ -1607,7 +1630,12 @@ void Game::callbackLoadBallfilePicker(void* userdata, void* contents, int filter
         size_t errorsLeft = 16;
         for (auto error = failure.errors.begin(); error < failure.errors.end(); ++error)
         {
-            failMessage += "\nAt line " + std::to_string(error->line) + ": " + error->error; 
+            failMessage += 
+            #ifdef EDIT_MODE
+                "\nAt character " + std::to_string(error->line) + ": " + error->error;
+            #else
+                "\nAt line " + std::to_string(error->line) + ": " + error->error;
+            #endif
             if (!--errorsLeft) break;
         }
 
@@ -1617,6 +1645,8 @@ void Game::callbackLoadBallfilePicker(void* userdata, void* contents, int filter
             failMessage.c_str(),
             game->window
         );
+
+        SDL_Log("%s", failMessage.c_str());
     }
 
     SDL_free(contents);

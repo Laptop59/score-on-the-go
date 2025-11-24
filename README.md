@@ -28,7 +28,7 @@ build_windows.bat
 # For the web (Windows)
 build_web_windows.bat
 ```
-- For the web, make sure to install the `emsdk` and make it accessiblt to the terminal: https://emscripten.org/docs/getting_started/downloads.html
+- For the web, make sure to install the `emsdk` and make it accessible to the terminal: https://emscripten.org/docs/getting_started/downloads.html
 - For native platforms and for Windows, you can replace `build` with `test` to also open the built executable. This is preferable for testing some new code.
 > **NOTE:** I have only tested them with Linux (so take the rest with a grain of salt!)
 
@@ -41,7 +41,7 @@ The following tutorials cover the basics.
 To use the editor's full potential, open help with `F1`.
 
 ### Charts/Ballfiles (.txt)
-Making charts tediously with editing a text file was not productive - so this editor can be used to help speed up the progress of making 'Ballfiles':
+The editor can be used to help make 'Ballfiles':
 1.  Open the Editor.
 2.  Load your music as a reference by using the key `M`.
 3.  Place balls in different x-positions and playtest your creation with `F3`. When you're done, use `F2` for the entire chart.

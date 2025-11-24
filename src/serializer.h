@@ -29,6 +29,8 @@ struct SerializerSuccess
     std::vector<PaddleSpeedChange> paddleSpeedChanges;
     std::vector<PaddleDualChange> paddleDualChanges;
     float musicOffset;
+    // The music ID of the chart, + 1. If no such music is defined, this is 0.
+    size_t musicId;
 };
 
 // Represents a serializer success for songs.txt.
@@ -67,6 +69,11 @@ const std::string paddleSpeedString = "ps";
 
 // Used in parsing ballfiles for dual changes.
 const std::string paddleDualString = "dual";
+
+// The list of quantizations for the conversion number in measure macrocodes (OX), starting from 0.
+const minibeat quantizations[] = {
+    96, 48, 24, 16, 12, 8, 6, 4, 3, 1
+};
 
 class Serializer
 {
@@ -143,6 +150,112 @@ class Serializer
             }
         }
 
+        // Checks if a character is a digit from 0-9.
+        static bool checkIsDigit(char inputChar)
+        {
+            return (inputChar >= '0' && inputChar <= '9');
+        }
+
+        // Checks if a character is a digit from 0-9, and parses it if so.
+        static bool checkIsDigit(char inputChar, uint8_t &result)
+        {
+            if (inputChar >= '0' && inputChar <= '9') {
+                result = (int) (inputChar - '0');
+                return true;
+            }
+            return false;
+        }
+
+        // Tries to parse a Δb (change in beats) value for hold-like balls from a character array. Stores it in regular beats if successful.
+        // If not, stores the error in the `error` string.
+        static bool parseDeltaBeat(std::vector<char> &arr, size_t &i, minibeat &result, std::string &error)
+        {
+            try {
+                uint8_t len = 0;
+                if (!checkIsDigit(arr.at(++i), len)) return false;
+                len++; // to get the actual length.
+                std::string minibeats = "";
+                for (size_t j = 0; j < len; j++) minibeats.push_back(arr.at(++i));
+                uint32_t minibeatsInt = 0;
+                if (!checkIsUnsignedMinibeat(minibeats, minibeatsInt)) {
+                    error += "Invalid unsigned number for Δb: " + minibeats;
+                    return false;
+                }
+                result = minibeatsInt;
+                return true;
+            } catch (std::exception e) { throw e; };
+        }
+
+        // Tries to parse a unit beat from a character array. Stores it if successful.
+        // If not, stores the error in the `error` string.
+        static bool parseUnitBeat(std::vector<char> &arr, size_t &i, uint8_t &result, std::string &error)
+        {
+            try {
+                char first = arr.at(++i);
+                switch (first) {
+                    case '7':
+                        {
+                            // Less common unit beats (take a 2nd digit).
+                            char second = arr.at(++i);
+                            if (second >= '0' && second <= '9')
+                            {
+                                std::vector<uint8_t> lessCommon = {5, 7, 9, 10, 11, 12, 13, 14, 15, 16};
+                                result = lessCommon.at(second - '0');
+                                return true;
+                            }
+                            error = "Invalid 2nd character for unit beat: ";
+                            error += second;
+                            return false;
+                        }
+                    case '8':
+                    case '9':
+                        // Arbitrary unit beat.
+                        uint8_t a1; uint8_t a2;
+                        if (!checkIsDigit(arr.at(++i), a1) || !checkIsDigit(arr.at(++i), a2)) {
+                            error = "Invalid digit(s) for arbitrary unit beat: ";
+                            error += a1;
+                            error += a2;
+                            return false;
+                        }
+                        result = (first == '9' ? 100 : 0) + 10 * a1 + a2;
+                        return true;
+                    default:
+                        if (first >= '0' && first <= '6')
+                        {
+                            // Common unit beats.
+                            std::vector<uint8_t> common = {0, 1, 2, 3, 4, 6, 8};
+                            result = common.at(first - '0');
+                            return true;
+                        }
+                        error += "Invalid 1st character for unit beat: ";
+                        error += first;
+                        return false;
+                }
+            } catch (std::out_of_range& e) { throw e; };
+        }
+
+        // Tries to parse an X-position from a character array. Stores the actual amount if successful.
+        // If not, stores the error in the `error` string.
+        static bool parsePosition(std::vector<char> &arr, size_t &i, float &result, std::string &error)
+        {
+            try {
+                std::string number = "";
+                for (size_t j = 0; j < 3; j++) number.push_back(arr.at(++i));
+                uint32_t pos = 0;
+                if (!checkIsUnsignedInt(number, pos)) {
+                    error = "Expected a number, found: " + number;
+                    return false;
+                }
+                float x = ((float) pos - 500) / 2;
+                if (x < 249.75 && x > -250.25) {
+                    result = x;
+                    return true;
+                }
+                error = "Invalid x position (x < 249.75 && x > -250.25): " + std::to_string(x);
+                return false;
+            } catch (std::exception e) { throw e; };
+        }
+
         // Gets all the tail points of a ball's type.
         static std::vector<BallTypeTailPoint>* getPointsFromType(BallType& type);
 
@@ -153,10 +266,6 @@ class Serializer
         // Reads the songs.txt file in edit_resources and if valid, returns the songs found.
         // Note: DO NOT PASS `NULL`/`nullptr` into the contents.
         SerializerResult readSongList(std::filesystem::path basePath);
-
-        // Reads a compressed (number-only) ball file from its contents and returns the result.
-        // Note: DO NOT PASS `NULL`/`nullptr` into the contents.
-        SerializerResult readCompressedBallfile(char* contents, size_t byteCount);
 
         // Gets the minibeat of an orderable ballfile item.
         minibeat getMinibeatOfOrderable(OrderableBallfileItem& item);
