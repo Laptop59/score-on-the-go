@@ -6,6 +6,12 @@
     EM_JS(void*, js_SDL_malloc, (size_t size), {
         return ccall('SDL_malloc', 'number', ['number'], [size]);
     });
+
+    EM_JS(bool, js_detectTouch, (), {
+        return (('ontouchstart' in window) ||
+            (navigator.maxTouchPoints > 0) ||
+            (navigator.msMaxTouchPoints > 0));
+    });
 #endif
 
 #include <SDL3/SDL_render.h>
@@ -38,6 +44,15 @@ Game::Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font*
     this->track = MIX_CreateTrack(mixer);
     this->music = nullptr;
 
+    #ifdef __EMSCRIPTEN__
+        this->touch = js_detectTouch();
+        this->touch = true;
+    #else
+        this->touch = false;
+    #endif
+
+    beforePrefs(true);
+
     // Search for any edit songs.
     #ifdef EDIT_MODE
         auto list = serializer->readSongList(basePath);
@@ -45,7 +60,8 @@ Game::Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font*
         {
             // Successful!
             this->editSongs = std::get<SerializerSongListSuccess>(list).editSongs;
-            SDL_Log("Songs loaded: %zu", this->editSongs.size());
+            SDL_Log("Songs loaded: %zu, loading %zu", this->editSongs.size(), this->musicId);
+            applyNewEditSong();
         }
         else
         {
@@ -67,11 +83,10 @@ Game::Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font*
             );
 
             SDL_Log("%s", failMessage.c_str());
-        }
-        applyNewEditSong();
-    #endif
 
-    beforePrefs(true);
+            this->quit = true;
+        }
+    #endif
 }
 
 Game::~Game()
@@ -91,23 +106,25 @@ Game::~Game()
 void Game::render()
 {
     // Draw a BG.
-    float scale = getRenderedScale();
-    SDL_SetRenderScale(this->renderer, scale, scale);
+    SDL_SetRenderDrawBlendMode(this->renderer, SDL_BLENDMODE_BLEND);
+    renderedScale = getRenderedScale();
+    SDL_SetRenderScale(this->renderer, renderedScale, renderedScale);
     SDL_SetRenderDrawColor(this->renderer, 0x1F, 0x1F, 0x1F, SDL_ALPHA_OPAQUE);
     SDL_RenderClear(this->renderer);
     {
         // Draw another result where gameplay will take place.
-        int height;
+        int height = 0;
         getRendererSize(nullptr, &height);
+        float totalHeight = static_cast<float>(height) / renderedScale;
         SDL_FRect gameplayRect =
             SDL_FRect
             {
                 getGameplayXoffset(),
                 0,
                 GAMEPLAY_WIDTH,
-                static_cast<float>(height) / getRenderedScale()
+                totalHeight
             };
-        SDL_SetRenderDrawColor(this->renderer, 0x33, 0x33, 0x33, SDL_ALPHA_OPAQUE);
+        SDL_SetRenderDrawColor(this->renderer, 0x38, 0x38, 0x38, SDL_ALPHA_OPAQUE);
         SDL_RenderFillRect(this->renderer, &gameplayRect);
         switch (gameState)
         {
@@ -115,6 +132,32 @@ void Game::render()
                 this->renderPlaytest();
                 break;
             default:
+                // Draw beat limits for edit charts (if any).
+                SDL_SetRenderDrawColor(this->renderer, 0x00, 0x00, 0x00, 80);
+                if (startBeat != -INFINITY)
+                {
+                    SDL_FRect startRect =
+                        SDL_FRect
+                        {
+                            getGameplayXoffset(),
+                            0,
+                            GAMEPLAY_WIDTH,
+                            (float) (getEditorSelectedBeatY() - (this->beat - startBeat) * beatSpacing)
+                        };
+                    if (startRect.h > 0) SDL_RenderFillRect(this->renderer, &startRect);
+                }
+                if (endBeat != INFINITY)
+                {
+                    SDL_FRect endRect =
+                        SDL_FRect
+                        {
+                            getGameplayXoffset(),
+                            (float) (getEditorSelectedBeatY() - (this->beat - endBeat) * beatSpacing),
+                            GAMEPLAY_WIDTH,
+                            totalHeight
+                        };
+                    if (endRect.y < totalHeight) SDL_RenderFillRect(this->renderer, &endRect);
+                }
                 this->renderEditor();
         }
     }
@@ -193,7 +236,7 @@ float Game::getInterpolatedPaddleWidth()
 
 void Game::renderPlaytest()
 {
-    // Render paddle;
+    // Render paddle.
     for (size_t i = 0; i <= getPaddleDualMode(this->beat) ? 1 : 0; i++) {
         float pos = i == 1 ? -paddlePosition : paddlePosition;
         auto alpha = i == 1 ? 0xAAu : 0xFFu;
@@ -213,10 +256,6 @@ void Game::renderPlaytest()
         SDL_SetRenderDrawColor(this->renderer, 0x33u, 0x33u, 0x33u, alpha);
         SDL_RenderFillRect(this->renderer, &paddleRect);
     }
-    
-
-    SDL_Color whiteColor = SDL_Color { 0xFFu, 0xFFu, 0xFFu, 0xFFu };
-    float x = getGameplayXoffset() + GAMEPLAY_WIDTH + 5;
 
     DRAW_TEXT_LINES(3, 8, 0.35f) {
         DRAW_TEXT_W("Beat: " + formatFloat(this->beat, 3));
@@ -276,12 +315,12 @@ float Game::getBallSize(Ball& ball)
 float Game::getGameplayXoffset() {
     float left;
     getUnusedPixels(&left, nullptr);
-    return (left / 2) / getRenderedScale() + GAMEPLAY_OFFSET;
+    return (left / 2) / renderedScale + GAMEPLAY_OFFSET;
 }
 
 void Game::renderQueuedBalls()
 {
-    SDL_FRect srcRect, destRect;
+    SDL_FRect destRect;
     // Render the tail of long balls.
     // TODO TO FIX ERRORS: Find a way to render an already-hit queued hold ball's tail.
     for (auto ball = queuedBalls.begin();
@@ -312,9 +351,6 @@ void Game::renderQueuedBalls()
         double holdStartsFrom = std::max((double) ball->at / MINIBEATS_PER_BEAT, this->beat);
         if (tailBeat <= holdStartsFrom) continue; // Don't want unnecessary looping.
         // Create a texture.
-        float renderedScale = getRenderedScale();
-        float renderedWidth = renderedScale * SCREEN_WIDTH;
-        float renderedHeight = renderedScale * SCREEN_HEIGHT;
         int totalWidth, totalHeight;
         getRendererSize(&totalWidth, &totalHeight);
         SDL_Texture* texture = SDL_CreateTexture(this->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, totalWidth, totalHeight);
@@ -456,9 +492,8 @@ float Game::queuedBallsYoffset()
 {
     int height;
     getRendererSize(nullptr, &height);
-    float scale = getRenderedScale();
-    float normalHeight = scale * GAMEPLAY_HEIGHT;
-    return (height - normalHeight) / getRenderedScale();
+    float normalHeight = renderedScale * GAMEPLAY_HEIGHT;
+    return (height - normalHeight) / renderedScale;
 }
 
 void Game::renderIndependentBall(const Ball& ball, SDL_FRect destRect, uint8_t alpha)
@@ -564,36 +599,36 @@ void Game::renderEditor()
     }
     while (y <= endY + 25.0f);
 
-    SDL_Color white = SDL_Color { 0xFF, 0xFF, 0xFF, 0xFF };
     DRAW_TEXT_LINES(3, 8, 0.35f) {
         DRAW_TEXT_W("Beat: " + formatFloat(this->beat, 3));
         DRAW_TEXT_W("(" + std::to_string(Ball::toMinibeats(this->beat)) + " mb)");
         DRAW_TEXT_W("Seconds: " + formatFloat(this->getSecondsFromBeat(this->beat), 3));
         LEAVE_LINE();
         DRAW_TEXT_W("Ball Speed: " + formatFloat(this->selectedSpeed, 3));
-        DRAW_TEXT_W("Music: " + getMusicStatus());
-        if (this->music)
-        {
-            Sint64 audioFrames = MIX_GetAudioDuration(this->music);
-            if (audioFrames != MIX_DURATION_UNKNOWN)
+        #ifndef EDIT_MODE
+            DRAW_TEXT_W("Music: " + getMusicStatus());
+            if (this->music)
             {
-                if (audioFrames == MIX_DURATION_INFINITE)
+                Sint64 audioFrames = MIX_GetAudioDuration(this->music);
+                if (audioFrames != MIX_DURATION_UNKNOWN)
                 {
-                    DRAW_TEXT_W("(Infinite)");
-                }
-                else
-                {
-                    // Format the frames.
-                    Sint64 millis = MIX_AudioFramesToMS(this->music, audioFrames);
-                    std::string time = formatMillis(millis);
-                    DRAW_TEXT_W("(" + time + ")");
+                    if (audioFrames == MIX_DURATION_INFINITE)
+                    {
+                        DRAW_TEXT_W("(Infinite)");
+                    }
+                    else
+                    {
+                        // Format the frames.
+                        Sint64 millis = MIX_AudioFramesToMS(this->music, audioFrames);
+                        std::string time = formatMillis(millis);
+                        DRAW_TEXT_W("(" + time + ")");
+                    }
                 }
             }
-        }
-        DRAW_TEXT_W("Music Offset: " + formatFloat(musicOffset, 3));
+            DRAW_TEXT_W("Music Offset: " + formatFloat(musicOffset, 3));
+        #endif
         LEAVE_LINE();
         DRAW_TEXT_W("Mode: " + getText(this->placingMode));
-        size_t i = 0;
         switch (this->placingMode)
         {
             case PlacingMode::BOUNCY:
@@ -622,8 +657,11 @@ void Game::renderEditor()
         DRAW_TEXT_W("Global Speed: " + formatFloat(this->globalSpeedModifier, 3));
         DRAW_TEXT_W("Spacing: " + formatFloat(this->beatSpacing, 2));
 
-        LEAVE_LINE();
-        DRAW_HELP("F1", "Help");
+        if (!touch)
+        {
+            LEAVE_LINE();
+            DRAW_HELP("F1", "Help");
+        }
     }
 
     this->drawEditorBalls(endY);
@@ -740,8 +778,8 @@ void Game::drawSpecificEditorMenu()
     // Middle x-position & y-position
     int width, height;
     getRendererSize(&width, &height);
-    width /= getRenderedScale();
-    height /= getRenderedScale();
+    width /= renderedScale;
+    height /= renderedScale;
     float x = width / 2;
     float y = height / 2;
     switch (gameState)
@@ -897,7 +935,7 @@ void Game::drawSpecificEditorMenu()
                 DRAW_HELP("L", "Load a Ballfile");
                 DRAW_HELP("S", "Save a Ballfile");
                 #ifdef EDIT_MODE
-                    DRAW_HELP("M", "Select Music for Edit");
+                    DRAW_HELP("M", "Select Music for Edit (only works when chart is empty)");
                 #else
                     DRAW_HELP("M", "Load Audio for Playtesting (or + ALT to set music offset)");
                 #endif
@@ -984,7 +1022,6 @@ void Game::drawEditorBalls(float endY)
         if (bpmChange.beat >= min && bpmChange.beat <= max)
         {
             double fromSelectedBeat = bpmChange.beat - this->beat;
-            float y = getEditorSelectedBeatY() + this->beatSpacing * fromSelectedBeat;
             drawLineMarker(fromSelectedBeat, ChangeColors::BPM_LINE, std::string("BPM: ") + formatFloat(bpmChange.bpm, 4),  ChangeColors::BPM_TEXT, 8, TextAlignment::RIGHT_ALIGNED, 1);
         }
     }
@@ -1566,7 +1603,7 @@ void Game::callbackLoadBallfilePicker(void* userdata, void* contents, int filter
     while (i < sizeInBytes)
     {
         char ch = text[i++];
-        if (ch == '\n' || ch == ':') {
+        if (ch == ':') {
             isProbablyUncompressed = true;
             break;
         }
@@ -1659,6 +1696,9 @@ std::optional<GameplayLeftPosition> Game::ballCanBePlaced()
     pos.x = mousePosition[0] - getGameplayXoffset();
     pos.y = mousePosition[1];
 
+    // If the ball is beyond the start and end beats, don't draw anything.
+    if (this->beat < startBeat || this->beat > endBeat) return std::nullopt;
+
     if (std::abs(getEditorSelectedBeatY() - pos.y) <= EDITOR_RANGE_SELECTED_BEAT
         && pos.x >= 0
         && pos.x < GAMEPLAY_WIDTH)
@@ -1708,15 +1748,8 @@ void Game::drawGhostBall()
 
 void Game::drawEditorBall(const Ball& ball)
 {
-    minibeat miniBeatsAtEditor = Ball::toMinibeats(this->beat);
-    minibeat miniBeatsOfBall   = ball.at;
+    minibeat miniBeatsOfBall = ball.at;
     ColorDivisor colorDivisor = ColorDivisor::getColorDivisor(miniBeatsOfBall);
-    SDL_FRect srcRect = this->textureLibrary->createRect(
-        (2 * colorDivisor.getColor() + isFast(ball.speed)) * BALL_SIZE,
-        0,
-        BALL_SIZE,
-        BALL_SIZE
-    );
     double fromSelectedBeat = Ball::toBeats(ball.at) - this->beat;
     SDL_FRect destRect = this->textureLibrary->createRect(
         ball.x + getGameplayXoffset() + GAMEPLAY_WIDTH / 2 - (float) (BALL_SIZE) / 2,
@@ -1742,7 +1775,7 @@ void Game::drawEditorBall(const Ball& ball)
 
 void Game::renderEditorBeatLine(size_t beat, float y)
 {
-    uint8_t lightness = 0xE4;
+    uint8_t lightness = (startBeat <= beat && beat <= endBeat) ? 0xE4 : 0xB4;
     SDL_Color color {
         lightness, lightness, lightness, 0xFF
     };
@@ -1819,7 +1852,7 @@ void Game::drawTextWithOutline(std::string str, SDL_Color fill, float x, float y
         textWidth2 = outlineTexture->w * size;  // up/downsize width
         textHeight2 = outlineTexture->h * size; // up/downsize height
     }
-    float drawX1, drawX2;
+    float drawX1 = 0, drawX2 = 0;
     switch (align)
     {
         case TextAlignment::LEFT_ALIGNED:
@@ -1889,9 +1922,6 @@ void Game::drawDivisorIndicator()
     SDL_SetRenderDrawColor(this->renderer, color.r, color.g, color.b, color.a);
     SDL_RenderFillRect(this->renderer, &rect);
 
-    minibeat miniBeats = Ball::toMinibeats(this->beat);
-    ColorDivisor colorDivisor = ColorDivisor::getColorDivisor(miniBeats);
-
     color.r = color.r / 2 + 128;
     color.g = color.g / 2 + 128;
     color.b = color.b / 2 + 128;
@@ -1926,6 +1956,7 @@ bool Game::isFast(float ballSpeed)
 
 void Game::moveTimesDivisor(float direction)
 {
+    if (touch) return;
     minibeat minibeats = Ball::toMinibeats(this->beat);
     // Add/Subtract required minibeats and convert back.
     minibeat netChange = this->selectedDivisor.getWorth() * std::abs(direction);
@@ -1942,15 +1973,18 @@ void Game::moveTimesDivisor(float direction)
             remainingMinibeats = minibeats - netChange;
         this->beat = Ball::toBeats(remainingMinibeats);
     }
+
     if (!leftMouseHeld) return;                     // Without left mouse holding, do not allow creation of long balls.
     if (balls.size() <= ballCheckedForTail) return; // Cannot be out of bounds.
+
     Ball& ball = balls.at(ballCheckedForTail);      // Then find the required ball.
     minibeat holdLength;
-    if (ball.at < Ball::toMinibeats(this->beat))
+    minibeat currentMinibeat = Ball::toMinibeats(this->beat);
+    if (ball.at < currentMinibeat)
     {
-        holdLength = Ball::toMinibeats(this->beat) - ball.at;
+        holdLength = currentMinibeat - ball.at;
     }
-    else if (ball.at == Ball::toMinibeats(this->beat))
+    else if (ball.at == currentMinibeat)
     {
         // Convert the ball back into a non-hold ball.
         if (std::holds_alternative<BallTypeHold>(ball.type))
@@ -1964,6 +1998,10 @@ void Game::moveTimesDivisor(float direction)
         return;
     }
     else return;
+    if (endBeat != INFINITY) {
+        minibeat endMinibeat = Ball::toMinibeats(endBeat);
+        if (ball.at + holdLength > endMinibeat) holdLength = endMinibeat - ball.at;
+    }
     if (std::holds_alternative<BallTypeNormal>(ball.type))
         // Normal --> Hold
         ball.type = BallTypeHold {
@@ -2106,9 +2144,7 @@ void Game::handleMouseButtonDownEvent(SDL_Event* event)
             {
                 // The ball can be deleted. Find balls close to the range.
                 float ballX = ballPosition->x - GAMEPLAY_WIDTH / 2;
-                float leastDistance = INFINITY;
                 minibeat minibeats = Ball::toMinibeats(this->beat);
-                std::vector<Ball>::iterator closest;
                 for (auto ball = balls.begin(); ball < balls.end(); ++ball)
                 {
                     sminibeat distance = (sminibeat)(ball->at) - (sminibeat)(minibeats);
@@ -2133,6 +2169,7 @@ std::vector<Ball>::iterator Game::removeBall(std::vector<Ball>::iterator ball)
 
 void Game::movesTimesDivisorWithEvent(float amount, SDL_Event* event)
 {
+    if (touch) return;
     if (event->type == SDL_EVENT_KEY_DOWN && event->key.mod & SDL_KMOD_ALT)
     {
         beatLinesOffset += amount;
@@ -2199,12 +2236,17 @@ void Game::handleKeyDownEvent(SDL_Event* event)
             {
                 float netChange = event->key.key == SDLK_COMMA ? -0.1f : 0.1f;
                 if (event->key.mod & SDL_KMOD_CTRL) netChange /= 10;
-                if (event->key.mod & SDL_KMOD_SHIFT) netChange /= 100;
+                else if (event->key.mod & SDL_KMOD_SHIFT) netChange /= 100;
                 float* toChange = &selectedSpeed;
                 if (event->key.mod & SDL_KMOD_ALT) toChange = &globalSpeedModifier;
                 *toChange += netChange;
-                if (*toChange <= 0)
-                    *toChange = -netChange;
+                #ifdef EDIT_MODE
+                    if (*toChange > 10) *toChange = 10;
+                    if (*toChange < 0.1) *toChange = 0.1;
+                #else
+                    if (*toChange <= 0)
+                        *toChange = -netChange;
+                #endif
                 if (toChange == &selectedSpeed)
                     savePrefs();
             }
@@ -2326,62 +2368,68 @@ void Game::setQueuedBalls(double startFrom)
     queuedBallFlashes.clear();
     auto iterStartFrom = std::lower_bound(balls.begin(), balls.end(), startFrom);
     std::copy(iterStartFrom, balls.end(), std::back_inserter(queuedBalls));
-    for (auto it = queuedBalls.begin(); it != queuedBalls.end(); ++it)
+
+    std::vector<Ball> newBalls;
+    newBalls.reserve(256);
+
+    for (auto& it : queuedBalls)
     {
-        std::vector<BallTypeTailPoint>* points = Serializer::getPointsFromType(it->type);
-        if (points != nullptr)
+        std::vector<BallTypeTailPoint>* points = Serializer::getPointsFromType(it.type);
+        if (points == nullptr || points->empty()) continue;
+        // This ball is either a hold or a pit.
+        minibeat longBallAt = it.at;
+        float longBallX = it.x;
+        BallType originalType = it.type;
+        // Create fragments from 0.25 to hold end incrementing by 0.25.
+        // Get the last point.
+        BallTypeTailPoint lastPoint = *points->rbegin();
+        for (minibeat node = LONG_BALL_NODE_SPACING; node <= lastPoint.minibeats; node += LONG_BALL_NODE_SPACING)
         {
-            // This ball is either a hold or a pit.
-            minibeat longBallAt = it->at;
-            float longBallX = it->x;
-            BallType originalType = it->type;
-            // Create fragments from 0.25 to hold end incrementing by 0.25.
-            if (points->empty()) continue;
-            // Get the last point.
-            BallTypeTailPoint lastPoint = *points->rbegin();
-            for (minibeat node = LONG_BALL_NODE_SPACING; node <= lastPoint.minibeats; node += LONG_BALL_NODE_SPACING)
+            float x = lastPoint.x;
+            // Calculate the appropriate 'x' value.
+            float x1 = longBallX, x2;
+            minibeat y1 = 0_mb, y2;
+            auto point = points->begin();
+            while (point != points->end())
             {
-                float x = lastPoint.x;
-                // Calculate the appropriate 'x' value.
-                float x1 = longBallX, x2;
-                minibeat y1 = 0_mb, y2;
-                auto point = points->begin();
-                while (point != points->end())
+                x2 = point->x;
+                y2 = point->minibeats;
+                ASSERT(y1 <= y2);
+                if (node <= y2)
                 {
-                    x2 = point->x;
-                    y2 = point->minibeats;
-                    ASSERT(y1 <= y2);
-                    if (node <= y2)
-                    {
-                        if (y1 == y2)
-                            x = y2;
-                        else
-                            x = x1 + (x2 - x1) / (y2 - y1) * (node - y1);
-                        break;
-                    }
-                    // Go to the next point.
-                    x1 = x2;
-                    y1 = y2;
-                    ++point;
+                    if (y1 == y2)
+                        x = x1;
+                    else
+                        x = x1 + (x2 - x1) / (y2 - y1) * (node - y1);
+                    break;
                 }
-
-                // Node ball minibeat = Hold ball minibeat + Relative minibeats.
-                Ball nodeBall(longBallAt + node, it->speed, x);
-
-                // Create type object and put that.
-                BallType type;
-
-                if (std::holds_alternative<BallTypeHold>(originalType))
-                    type = BallTypeHoldFragment {};
-                else if (std::holds_alternative<BallTypePit>(originalType))
-                    type = BallTypePitFragment {};
-                
-                nodeBall.type = type;
-
-                it = queuedBalls.insert(it + 1, nodeBall);
+                // Go to the next point.
+                x1 = x2;
+                y1 = y2;
+                ++point;
             }
+
+            // Node ball minibeat = Hold ball minibeat + Relative minibeats.
+            Ball nodeBall(longBallAt + node, it.speed, x);
+
+            // Create type object and put that.
+            BallType type;
+
+            if (std::holds_alternative<BallTypeHold>(originalType))
+                nodeBall.type = BallTypeHoldFragment {};
+            else if (std::holds_alternative<BallTypePit>(originalType))
+                nodeBall.type = BallTypePitFragment {};
+
+            newBalls.push_back(std::move(nodeBall));
         }
     }
+
+    // Merge fragments into main list
+    queuedBalls.insert(queuedBalls.end(), newBalls.begin(), newBalls.end());
+
+    // Ensure correct playback order
+    std::sort(queuedBalls.begin(), queuedBalls.end(),
+              [](const Ball& a, const Ball& b) { return a.at < b.at; });
 }
 
 void Game::stopPlayTest()
@@ -2397,7 +2445,6 @@ void Game::stopPlayTest()
 
 bool Game::handleMenuEvent(SDL_Event* event)
 {
-    char toAdd = '\0';
     GameState prevState = gameState;
     switch (event->type)
     {
@@ -2414,6 +2461,7 @@ bool Game::handleMenuEvent(SDL_Event* event)
                     }
                     break;
                 case SDLK_F1:
+                    if (touch) break;
                     // Open/close Help Menu.
                     if (gameState == GameState::EDITING_HELP)
                     {
@@ -2509,7 +2557,7 @@ bool Game::handleMenuEvent(SDL_Event* event)
                     break;
                 case SDLK_M:
                     #ifdef EDIT_MODE
-                        if (gameState == GameState::EDITING_NONE)
+                        if (gameState == GameState::EDITING_NONE && balls.empty())
                         {
                             resetInput();
                             gameState = GameState::EDITING_MUSIC; // menu open.
@@ -2593,7 +2641,6 @@ bool Game::handleMenuEvent(SDL_Event* event)
                     }
                     else if (gameState == GameState::EDITING_MUSIC)
                     {
-                        double bpm;
                         gameState = GameState::EDITING_NONE;
                         if (musicId != appliedMusicId)
                         {
@@ -2751,8 +2798,8 @@ bool Game::handleMenuEvent(SDL_Event* event)
     if (prevState < 0x03 && gameState >= 0x03) {
         int width, height;
         getRendererSize(&width, &height);
-        width /= getRenderedScale();
-        height /= getRenderedScale();
+        width /= renderedScale;
+        height /= renderedScale;
         int y = height / 2;
         SDL_Rect rect {0, y, width, y + 100};
         SDL_SetTextInputArea(window, &rect, this->mousePosition[0]);
@@ -2775,10 +2822,12 @@ void Game::applyNewEditSong() {
     buffer << in.rdbuf();
     std::string str = buffer.str();
     SerializerResult result = serializer->readBallfile(str.data(), str.length(), true);
-    if (std::holds_alternative<SerializerSuccessFromBallFile>(result)) {
-        SerializerSuccessFromBallFile success = std::get<SerializerSuccessFromBallFile>(result);
+    if (std::holds_alternative<SerializerSuccess>(result)) {
+        SerializerSuccess success = std::get<SerializerSuccess>(result);
         bpmChanges = success.bpmChanges;
         musicOffset = success.musicOffset;
+        startBeat = success.startBeat;
+        endBeat = success.endBeat;
     }
 
     // Load the music.
@@ -2802,6 +2851,8 @@ void Game::applyNewEditSong() {
         MIX_DestroyAudio(this->music);
     }
     this->music = music;
+
+    savePrefs();
 }
 
 float Game::getPaddleSpeed()
@@ -3141,7 +3192,6 @@ void Game::updateBalls()
                 ++it;
                 continue;
             }
-            double difference = Ball::toBeats(it->at) - this->beat;
             double seconds = getSecondsFromBeat(Ball::toBeats(it->at)) - getSecondsFromBeat(this->beat);
             double milliseconds = seconds * 1000;
             Judgment judgment = getJudgmentFromMilliseconds(milliseconds);
@@ -3256,48 +3306,67 @@ void Game::handleEvent(SDL_Event* event)
             break;
         case SDL_EVENT_MOUSE_MOTION:
             float scaling = getScale();
+            float y = event->motion.y / scaling;
+            if (touch) {
+                if (SDL_GetMouseState(NULL, NULL) & SDL_BUTTON_LMASK)
+                {
+                    float dy = y - this->mousePosition[1];
+                    beat -= dy / beatSpacing;
+                }
+            }
             this->mousePosition[0] = event->motion.x / scaling;
-            this->mousePosition[1] = event->motion.y / scaling;
+            this->mousePosition[1] = y;
             moveCurrentPoint(shouldClonePoint);
             shouldClonePoint = false;
+            break;
     }
 }
 
 void Game::moveCurrentPoint(bool clone)
 {
     if (!selectedPoint) return;
+
+    BallType& ballType = selectedPointOwner.value()->type;
+    std::vector<BallTypeTailPoint>* points = Serializer::getPointsFromType(ballType);
+    auto iter = selectedPoint.value();
     if (clone)
     {
-        BallType& ballType = selectedPointOwner.value()->type;
-        std::vector<BallTypeTailPoint>* points = Serializer::getPointsFromType(ballType);
-        if (std::holds_alternative<BallTypeHold>(ballType))
+        BallTypeTailPoint copy = *iter;
+        if (iter != points->end())
         {
-            BallTypeHold& ballTypeData = std::get<BallTypeHold>(ballType);
-            std::vector<BallTypeTailPoint>::iterator& iterator = selectedPoint.value();
-            BallTypeTailPoint copy = *iterator;
-            if (iterator != ballTypeData.points.end())
-            {
-                ++iterator;
-            }
-            selectedPoint = ballTypeData.points.insert(iterator, copy);
+            ++iter;
         }
-        if (std::holds_alternative<BallTypePit>(ballType))
-        {
-            BallTypePit& ballTypeData = std::get<BallTypePit>(ballType);
-            std::vector<BallTypeTailPoint>::iterator& iterator = selectedPoint.value();
-            BallTypeTailPoint copy = *iterator;
-            if (iterator != ballTypeData.points.end())
-            {
-                ++iterator;
-            }
-            selectedPoint = ballTypeData.points.insert(iterator, copy);
-        }
+        selectedPoint = points->insert(iter, copy);
     }
-    std::vector<BallTypeTailPoint>::iterator point = selectedPoint.value();
-    point->x = this->mousePosition[0] - getGameplayXoffset() - GAMEPLAY_WIDTH / 2;
-    double ballBeats = this->beat + (this->mousePosition[1] - getEditorSelectedBeatY()) / beatSpacing;
-    ballBeats -= Ball::toBeats(this->selectedPointOwner.value()->at);
-    point->minibeats = Ball::toMinibeats(ballBeats);
+
+    std::vector<BallTypeTailPoint>::iterator point = *selectedPoint;
+
+    auto prev = point;
+    auto next = point;
+
+    minibeat holdBallBeat = this->selectedPointOwner.value()->at;
+    // Both minBeat & maxBeat are relative to the hold head and are in minibeats,
+    minibeat minBeat = 0;
+    if (prev != points->begin())
+    {
+        // Don't let the point go above the previous node.
+        --prev;
+        minBeat = prev->minibeats;
+    }
+    minibeat maxBeat = (endBeat == INFINITY) ? MAX_MINIBEAT : (Ball::toMinibeats(endBeat) - holdBallBeat);
+
+    if (next != --points->end())
+    {
+        // Don't let the point go below the next node.
+        ++next;
+        maxBeat = next->minibeats;
+    }
+    point->x = std::clamp(this->mousePosition[0] - getGameplayXoffset() - GAMEPLAY_WIDTH / 2, -GAMEPLAY_WIDTH/2, GAMEPLAY_WIDTH/2);
+    minibeat ballBeats = Ball::toMinibeats(this->beat + (this->mousePosition[1] - getEditorSelectedBeatY()) / beatSpacing);
+    ballBeats = (ballBeats < holdBallBeat ? 0 : ballBeats - holdBallBeat);
+    if (ballBeats < minBeat) ballBeats = minBeat; // Limit the min. beat of the point.
+    if (ballBeats > maxBeat) ballBeats = maxBeat; // Limit the max. beat of the point.
+    point->minibeats = ballBeats;
 }
 
 size_t Game::addBall(const Ball& ball)
@@ -3592,7 +3661,7 @@ void Game::getRendererSize(int *width, int *height)
 
 void Game::getAspectRatioWindowSize(float* width, float* height)
 {
-    float scale = getScale();
+    float scale = getRenderedScale();
 
     if (width != nullptr)
         *width = scale * SCREEN_WIDTH;
@@ -3607,7 +3676,7 @@ void Game::getUnusedPixels(float* left, float* top)
     int windowWidth, windowHeight;
 
     getAspectRatioWindowSize(&aspectRatioWidth, &aspectRatioHeight);
-    getWindowSize(&windowWidth, &windowHeight);
+    getRendererSize(&windowWidth, &windowHeight);
 
     if (left != nullptr)
         *left = windowWidth - aspectRatioWidth;
@@ -3691,7 +3760,7 @@ float Game::getSignedFallingBallPos(const Ball& ball)
             double x3 = type.lastHit;            // where the ball last was
             double x1 = Ball::toBeats(ball.at);  // where the ball is now going
             float minimum_y = PADDLE_TOP_SIGNED + BALL_SIZE / 2;
-            float y2 = getSignedYPosFromBeatAgainstAnother(beats, speed, Ball::toBeats(ball.at - type.interval));
+            float y2 = minimum_y + (getSignedYPosFromBeatAgainstAnother(beats, speed, Ball::toBeats(ball.at - type.interval)) - minimum_y) * 0.85f;
 
             float t = (this->beat - x3) / (x1 - x3);
             float y_quadratic_float = 1 - 4 * std::pow(t - 0.5f, 2);
@@ -3758,8 +3827,6 @@ bool Game::beforePrefs(bool initFS)
                     );
                     // We should show the game canvas as well.
                     canvasElement.className = "emscripten";
-                    // We should show the Fullscreen button.
-                    fullscreenElement.hidden = false;
                     emfsElement.className = "emscripten emscripten_fullscreen";
                     // Hide the 'status'.
                     statusElement.hidden = true;
@@ -3778,6 +3845,7 @@ bool Game::beforePrefs(bool initFS)
             SDL_free(path);
             return false;
         }
+        loadPrefs();
         SDL_free(path);
     #endif
     return true;
@@ -3799,9 +3867,17 @@ bool Game::savePrefs()
     floats.push_back(globalSpeedModifier);
     floats.push_back(beatSpacing);
 
-    size_t count = floats.size();
-    out.write(reinterpret_cast<const char*>(&count), sizeof(count));
-    out.write(reinterpret_cast<const char*>(floats.data()), count * sizeof(float));
+    size_t countF = floats.size();
+    out.write(reinterpret_cast<const char*>(&countF), sizeof(countF));
+    out.write(reinterpret_cast<const char*>(floats.data()), countF * sizeof(float));
+
+    std::vector<uint32_t> ints;
+    ints.push_back(appliedMusicId);
+
+    size_t countI = ints.size();
+    out.write(reinterpret_cast<const char*>(&countI), sizeof(countI));
+    out.write(reinterpret_cast<const char*>(ints.data()), countI * sizeof(uint32_t));
+
     out.close();
 
     return true;
@@ -3832,19 +3908,37 @@ bool Game::loadPrefs()
     }
 
     std::vector<float> floats;
-    size_t count = 0;
+    size_t countF = 0;
+    std::vector<uint32_t> ints;
+    size_t countI = 0;
 
-    in.read(reinterpret_cast<char*>(&count), sizeof(count));
-    floats.resize(count);
+    in.read(reinterpret_cast<char*>(&countF), sizeof(countF));
+    floats.resize(countF);
 
-    in.read(reinterpret_cast<char*>(floats.data()), count * sizeof(float));
+    in.read(reinterpret_cast<char*>(floats.data()), countF * sizeof(float));
+
+    in.read(reinterpret_cast<char*>(&countI), sizeof(countI));
+    ints.resize(countI);
+
+    in.read(reinterpret_cast<char*>(ints.data()), countI * sizeof(uint32_t));
+
     in.close();
 
-    if (count >= 3)
+    if (in.fail()) {
+        // Print a more detailed error message using
+        // strerror
+        std::cerr << "Error details: " << strerror(errno)
+                << std::endl;
+    }
+
+    if (countF >= 3 && countI >= 1)
     {
         this->beatLinesOffset = floats.at(0);
         this->globalSpeedModifier = floats.at(1);
         this->beatSpacing = floats.at(2);
+
+        this->appliedMusicId = ints.at(0);
+        this->musicId = this->appliedMusicId;
     }
 
     return true;

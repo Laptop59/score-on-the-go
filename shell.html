@@ -41,7 +41,7 @@
 
       .emscripten_border {
         width: 100%;
-        height: calc(100% - 48px);
+        height: 100%;
         display: flex;
         justify-content: center; /* horizontal */
         align-items: center;     /* vertical */
@@ -58,13 +58,8 @@
 
       div.emscripten {
         text-align: center;
-      }
-
-      div.emscripten_fullscreen {
         background-color: rgba(0, 0, 0, 0.4);
-        height: 20px;
-        padding: 16px 16px;
-        margin-bottom: calc((100% - 52px - 98%) / 2);
+        height: 0px;
         border-bottom: 5px solid rgba(0, 0, 0, 0.4);
       }
 
@@ -125,7 +120,6 @@
     </div>
     <div class="emscripten" id="emfs">
       <progress value="0" max="100" id="progress" hidden=1></progress>
-      <input type="button" value="Fullscreen" id="fullscreen" hidden onclick="Module.requestFullscreen(false, true)">
     </div>
     <div class="emscripten_border">
       <canvas class="emscripten hidden" id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
@@ -138,9 +132,10 @@
       var canvasElement = document.getElementById('canvas');
       var outputElement = document.getElementById('output');
       if (outputElement) outputElement.value = ''; // clear browser cache
-      var fullscreenElement = document.getElementById('fullscreen');
       var emfsElement = document.getElementById('emfs');
       var initElement = document.getElementById('init');
+
+      screen.orientation.lock('landscape-primary').catch(console.warn);
 
       // As a default initial behavior, pop up an alert when webgl context is lost. To make your
       // application robust, you may want to override this behavior before shipping!
@@ -201,6 +196,7 @@
           if (text) console.error('[post-exception status] ' + text);
         };
       };
+      
     </script>
     {{{ SCRIPT }}}
   </div>

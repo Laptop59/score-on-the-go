@@ -4,24 +4,36 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_LIST_DIR}/resources"
-    "${CMAKE_CURRENT_LIST_DIR}/edit_resources"
-)
-
 ################ 
 ## Program-configurable flags
 # These can be checked using #ifdef/#ifndef.
-#
+
 # Whether charts made with this editor are for online edits.
 # OFF - for official charts, ON - for edits.
 set(EDIT_MODE ON)
+
+# Whether to compile the program with debug symbols.
+# Note that the testing scripts only try opening the Release program, so you may have to manually open the Debug program.
+set(DEBUG OFF)
 
 ################
 if (EDIT_MODE)
     add_definitions(-DEDIT_MODE=1)
 endif()
 
+if (DEBUG)
+    set(CMAKE_BUILD_TYPE "Debug")
+else()
+    set(CMAKE_BUILD_TYPE "Release")
+endif()
+
+function(watch)
+    set_property(
+        DIRECTORY
+        APPEND
+        PROPERTY CMAKE_CONFIGURE_DEPENDS ${ARGV}
+    )
+endfunction()
 
 # set the output directory for built objects.
 # This makes sure that the dynamic library goes into the build directory automatically.
@@ -41,11 +53,28 @@ else()
     set(SDL_SHARED ON)
 endif()
 
+file(GLOB_RECURSE SRC_FILES "${CMAKE_CURRENT_LIST_DIR}/src/*.cpp")
+
 if(MSVC)
     if(NOT CMAKE_GENERATOR STREQUAL "Ninja")
         add_definitions(/MP)				# parallelize each target, unless Ninja is the generator
     endif()
 endif()
+
+# Gather all resource files.
+file(GLOB_RECURSE RESOURCE_FILES
+    "${CMAKE_CURRENT_LIST_DIR}/resources/*"
+)
+watch("${CMAKE_CURRENT_LIST_DIR}/resources")
+if (EDIT_MODE)
+    file(GLOB_RECURSE EDIT_RESOURCE_FILES
+        "${CMAKE_CURRENT_LIST_DIR}/edit_resources/*"
+    )
+    watch("${CMAKE_CURRENT_LIST_DIR}/edit_resources")
+    list(APPEND RESOURCE_FILES ${EDIT_RESOURCE_FILES})
+endif()
+
+set(ALL_RESOURCES ${RESOURCE_FILES})
 
 # Set the name of the executable
 set(EXECUTABLE_NAME ${PROJECT_NAME})
@@ -139,44 +168,18 @@ endif()
 if (APPLE)
     # on Apple targets, the application bundle has a "Resources" subfolder where we can place our assets.
     # SDL_GetBasePath() gives us easy access to that location.
-    macro(add_res_folder RES_FOLDER)
-        set(input_root "${CMAKE_CURRENT_LIST_DIR}/${RES_FOLDER}")
-
-        macro(add_resource FILE)
-            # Get path of FILE relative to input_root
-            file(RELATIVE_PATH relpath "${input_root}" "${FILE}")
-            get_filename_component(relpath "${relpath}" DIRECTORY)
-
-            # Add the file as a source
-            target_sources(${EXECUTABLE_NAME} PRIVATE ${FILE})
-
-            # Preserve directory structure in Resources/
-            if(relpath STREQUAL "")
-                # If file is directly under resources/, put it in top-level Resources
-                set_property(SOURCE ${FILE} PROPERTY MACOSX_PACKAGE_LOCATION "Resources")
-            else()
-                # Otherwise put it in Resources/<subdir>
-                set_property(SOURCE ${FILE} PROPERTY MACOSX_PACKAGE_LOCATION "Resources/${relpath}")
-            endif()
-        endmacro()
-
-        # Collect all files recursively from resources/.
-        # Note that new files will not be updated unless you run CMake again (with GLOB),
-        # but this is fine for us as building always calls CMake.
-        file(GLOB_RECURSE RESOURCE_FILES
-            "${input_root}/*"
-        )
-
-        # Add each file with its preserved path.
-        foreach(res ${RESOURCE_FILES})
-            add_resource("${res}")
-        endforeach()
-    endmacro()
-
-    add_res_folder("resources")
-    if(EDIT_MODE) # include specific edit mode resources.
-        add_res_folder("edit_resources")
-    endif()
+    foreach(res ${ALL_RESOURCES})
+        # Compute relative path and add as target source for bundle
+        file(RELATIVE_PATH relpath "${CMAKE_CURRENT_LIST_DIR}" "${res}")
+        get_filename_component(dir "${relpath}" DIRECTORY)
+        if(dir STREQUAL "")
+            set(dir "Resources")
+        else()
+            set(dir "Resources/${dir}")
+        endif()
+        set_source_files_properties(${res} PROPERTIES MACOSX_PACKAGE_LOCATION ${dir})
+        target_sources(${EXECUTABLE_NAME} PRIVATE ${res})
+    endforeach()
 
 elseif(EMSCRIPTEN)
     # On the web, we have to put the files inside of the WebAssembly.
@@ -212,49 +215,33 @@ else()
         file(MAKE_DIRECTORY "${MOBILE_ASSETS_DIR}")    # We need to create the project Assets dir; otherwise CMake won't copy our assets.
     endif()
 
-    
-    macro(copy_helper filename)
-        if (ANDROID)
-            set(outname "${MOBILE_ASSETS_DIR}/${filename}")
-        else()
-            set(outname "${CMAKE_BINARY_DIR}/$<CONFIGURATION>/${filename}")
-        endif()
+    foreach(res IN LISTS ALL_RESOURCES)
+        # Compute the relative path inside project.
+        file(RELATIVE_PATH relpath "${CMAKE_SOURCE_DIR}" "${res}")
 
-        # Get the directory portion of the file path
-        get_filename_component(outdir "${outname}" DIRECTORY)
+        # Compute the output file inside build/Release or build/Debug.
+        set(out "${CMAKE_BINARY_DIR}/$<CONFIG>/${relpath}")
+        get_filename_component(outdir "${out}" DIRECTORY)
 
-        add_custom_command(TARGET "${EXECUTABLE_NAME}" POST_BUILD
+        # Create a ustom command, which copies exactly 1 file.
+        add_custom_command(
+            OUTPUT "${out}"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${outdir}"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_LIST_DIR}/${filename}"
-                "${outname}"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${res}" "${out}"
+            DEPENDS "${res}"
+            COMMENT "Updating: ${relpath}"
         )
-    endmacro()
 
-
-    # Gather all resource files recursively.
-    file(GLOB_RECURSE RESOURCE_FILES
-        "${CMAKE_CURRENT_LIST_DIR}/resources/*"
-    )
-    if (EDIT_MODE)
-        file(GLOB_RECURSE EDIT_RESOURCE_FILES
-            "${CMAKE_CURRENT_LIST_DIR}/edit_resources/*"
-        )
-        list(APPEND RESOURCE_FILES ${EDIT_RESOURCE_FILES})
-    endif()
-
-    # Loop, and do a copy for each one!
-    foreach(res ${RESOURCE_FILES})
-        # Get relative path inside resources/.
-        file(RELATIVE_PATH relpath "${CMAKE_CURRENT_LIST_DIR}" "${res}")
-        copy_helper("${relpath}")
+        list(APPEND GENERATED_RESOURCE_OUTPUTS "${out}")
     endforeach()
-endif()
 
-# set some extra configs for each platform
-set(RESOURCE_FILES "resources/logo.png")
-if(IOS)
-    set(RESOURCE_FILES "resources/iosLaunchScreen.storyboard;resources/logo.png") # make the splash screen show up on iOS
+    # Custom target that depends on all resources.
+    add_custom_target(copy_resources ALL
+        DEPENDS ${GENERATED_RESOURCE_OUTPUTS}
+    )
+
+    # Make executable depend on the resource target.
+    add_dependencies(${EXECUTABLE_NAME} copy_resources)
 endif()
 
 set_target_properties(${EXECUTABLE_NAME} PROPERTIES 
@@ -270,7 +257,7 @@ set_target_properties(${EXECUTABLE_NAME} PROPERTIES
     XCODE_ATTRIBUTE_BUNDLE_IDENTIFIER "io.github.laptop59.score-on-the-go"
 	XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "io.github.laptop59.score-on-the-go"
 	XCODE_ATTRIBUTE_CURRENTYEAR "${CURRENTYEAR}"
-    RESOURCE "${RESOURCE_FILES}"
+    RESOURCE "${ALL_RESOURCES}"
 )
 
 # on Visual Studio, set our app as the default project
@@ -295,3 +282,5 @@ if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
     set(CPACK_GENERATOR "DragNDrop")
     include(CPack)
 endif()
+
+target_compile_options(score-on-the-go PRIVATE -Wall -Wextra -Werror=uninitialized)

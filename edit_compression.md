@@ -1,8 +1,8 @@
 # Score on the Go: Edit Compression
 
 This article will describe how to compress a ballfile (for edits in SOTG) to a string of digits.
-Balls, holds (only head), pits ("), mines, and bouncy balls, and PW, PS and DUAL changes are all under the same encoding:
-each of them for the purposes of this article be called a **macrocode**.
+Balls, holds (only head), pits ("), mines, and bouncy balls, and PW, PS and DUAL changes are all under the same encoding.
+Let each of them for the purposes of this article be called a **macrocode**.
 
 Example:
 ```
@@ -45,7 +45,7 @@ Remember to check for provided assertions (marked with Ɐ)
 |||`encoded = round(x*2)+500`|
 |||For this formula to work properly, `x` must be representable as an integer or halves and be in the range `[-250, 249.5)`|
 |||It can then easily be decoded with `decoded = (encoded-500)/2`.|
-|||**Ɐ `249.75 > uB > -250.25`**|
+|||**Ɐ `249.75 > uB > -250.25`**, but ballfile loaders should limit X positions to ±240.|
 |**>>>**|2-5 digits|This represents the speed of a ball. Ways of encoding them are given below:|
 ||*(A=0~3)B*|Represents a speed of `(10A+B+1)/10`|
 ||e.g.||
@@ -89,8 +89,15 @@ Remember to check for provided assertions (marked with Ɐ)
 |||Nodes are stored in the following way: (no, the tail node at Δb=0 is not stored)|
 |||`Δb1` `x1` `Δb2` `x2` `Δb3` `x3` ... `ΔbN` `xN` 9|
 |||Here, `9` indicates ending of `N` nodes.|
-|**vvv**|(3-5 digits) `RR` `ub`|Represents the bouncy nature of a ball where RR represents (number of respawns - 1)|
+|**vvv**|(4+ digits) `RR` `mb`|Represents the bouncy nature of a ball where RR represents (number of respawns - 1)|
 |||**Ɐ `00 <= RR <= 98` or `1 <= r <= 99`** (`r` is number of respawns)|
+|||**mb** specifies the interval of the bouncy ball in millibeats. It is also stored as `(len(mb)-1)` `mb`.
+||e.g.||
+||148|`48mb` = `1.000` beats|
+||01|`1mb` = `0.021` beats|
+||111|`11mb` = `0.229` beats|
+||31234|`1234mb` = `25.708` beats|
+||5123456|`123456mb` = `2572.000` beats|
 |**Pw**|(3 digits) `XXX`|Specifies the new width of the paddle at this change where XXX is calculated by the formula:|
 |||`XXX = pad(width, 3)`|
 |||**Ɐ `0 <= width <= 454`**|
@@ -114,7 +121,7 @@ Remember to check for provided assertions (marked with Ɐ)
 ||`X` = 5|`1 ub = 8 mb `&emsp;24<sup>th</sup>|
 ||`X` = 6|`1 ub = 6 mb `&emsp;32<sup>nd</sup>|
 ||`X` = 7|`1 ub = 4 mb `&emsp;48<sup>th</sup>|
-||`X` = 8|`1 ub = 3 mb `&emsp;64<sup>nd</sup>|
+||`X` = 8|`1 ub = 3 mb `&emsp;64<sup>th</sup>|
 ||`X` = 9|`1 ub = 1 mb `&emsp;192<sup>nd</sup>|
 |1 `Δub` `x` `>>>`||Specifies a normal ball with the specified properties.|
 |2 `Δub` `x` `>>>`||Specifies a mine ball with the specified properties.|

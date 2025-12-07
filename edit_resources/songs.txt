@@ -9,9 +9,14 @@
 # The rest are BPMs for the song.
 # Make sure to have a BPM at beat 0.
 #
+# The second and third lines are the starting placeable beats for the song, basically, the minimum and maximum beat
+# to place any ball or hold node.
+#
 # Example (the Monody song.txt):
 #
-# -0.05
+# -0.065
+# 8
+# 158
 # 0.000000:67.500000:bpm
 # 13.000000:107.000000:bpm
 

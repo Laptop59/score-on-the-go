@@ -5,21 +5,13 @@
 #include <variant>
 #include <vector>
 
-// Represents minibeat, x pos and speed in the same structure.
-struct Mxs
-{
-    minibeat minibeat;
-    float x;
-    float speed;
-};
-
 // Type of a normal ball.
 struct BallTypeNormal {};
 
 // Type of a ball mine.
 struct BallTypeMine {};
 
-// Type of a normal square.
+// Type of a normal square (unused).
 struct BallTypeSquare {};
 
 // Type of a bouncy ball.
@@ -87,9 +79,6 @@ class Ball
         // Creates a normal ball with a minibeat.
         Ball(minibeat at, float speed, float x);
 
-        // Creates a normal ball using an Uxs.
-        Ball(Mxs uxs);
-
         // Creates a normal ball with a double, converted to a minibeat.
         Ball(double at, float speed, float x);
 
@@ -125,22 +114,22 @@ class Ball
             return at >= other.at;
         }
 
-        bool operator<(const int& other) const
+        bool operator<(const minibeat& other) const
         {
             return at < other;
         }
 
-        bool operator>(const int& other) const
+        bool operator>(const minibeat& other) const
         {
             return at > other;
         }
 
-        bool operator<=(const int& other) const
+        bool operator<=(const minibeat& other) const
         {
             return at <= other;
         }
 
-        bool operator>=(const int& other) const
+        bool operator>=(const minibeat& other) const
         {
             return at >= other;
         }

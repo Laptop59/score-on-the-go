@@ -31,6 +31,9 @@ class TextureLibrary
         // SDL Renderer for creating textures.
         SDL_Renderer* renderer;
 
+        // A reference to the Game object.
+
+
         // The base path (from SDL).
         std::filesystem::path basePath;
 
@@ -41,7 +44,8 @@ class TextureLibrary
         ~TextureLibrary();
 
         // Load textures. This function should only be called once.
-        void loadTextures();
+        // Returns whether all textures have been loaded correctly.
+        bool loadTextures();
 
         // Create a FRect for use in SDL3.
         SDL_FRect createRect(float x, float y, float w, float h);

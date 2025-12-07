@@ -29,6 +29,8 @@ struct SerializerSuccess
     std::vector<PaddleSpeedChange> paddleSpeedChanges;
     std::vector<PaddleDualChange> paddleDualChanges;
     float musicOffset;
+    float startBeat;
+    float endBeat;
     // The music ID of the chart, + 1. If no such music is defined, this is 0.
     size_t musicId;
 };
@@ -53,7 +55,7 @@ struct SerializerFailure
 };
 
 // Represents a result from the serializer.
-using SerializerResult = std::variant<SerializerSuccessFromBallFile, SerializerSongListSuccess, SerializerSuccessFromDecoding, SerializerFailure>;
+using SerializerResult = std::variant<SerializerSuccess, SerializerSongListSuccess, SerializerFailure>;
 
 // Represents any orderable item (macrocode) in compressed ballfile data.
 using OrderableBallfileItem = std::variant<Ball, BpmChange, PaddleWidthChange, PaddleSpeedChange, PaddleDualChange>;
@@ -79,12 +81,6 @@ class Serializer
 {
     private:
         size_t line;
-        size_t char_i;
-
-        size_t currentMeasure;
-        minibeat mbPerUb;
-        unitbeat currentUb;
-        bool currentDualStatus;
 
         std::vector<std::vector<char>> lines;
         std::vector<Ball> balls;
@@ -95,41 +91,103 @@ class Serializer
         std::vector<Command> commands;
         std::vector<char> chars;
 
-        char parseConsumeChar();
-        char parsePeekChar();
+        // Tries to parse a variable length minibeat value for hold-like/bouncy balls from a character array. Stores it in minibeats if successful.
+        // If not, stores the error in the `error` string.
+        static bool parseVarLengthMinibeat(std::vector<char> &arr, size_t &i, minibeat &result, std::string &error)
+        {
+            try {
+                uint8_t len = 0;
+                char l = arr.at(++i);
+                if (!checkIsDigit(l, len)) {
+                    error += std::string("Invalid length character: ") + l;
+                    return false;
+                }
+                len++; // to get the actual length.
+                std::string minibeats = "";
+                for (size_t j = 0; j < len; j++) minibeats += arr.at(++i);
+                uint32_t minibeatsInt = 0;
+                if (!checkIsUnsignedMinibeat(minibeats, minibeatsInt)) {
+                    error += std::string("Invalid unsigned number for var length minibeat: ") + minibeats;
+                    return false;
+                }
+                result = minibeatsInt;
+                return true;
+            } catch (const std::exception& e) { throw e; };
+        }
 
-        size_t parseOneDigitNumber();
-        size_t parseTwoDigitNumber();
-        size_t parseNumber(size_t digits);
+        // Tries to parse a unit beat from a character array. Stores it if successful.
+        // If not, stores the error in the `error` string.
+        static bool parseUnitBeat(std::vector<char> &arr, size_t &i, uint8_t &result, std::string &error)
+        {
+            try {
+                char first = arr.at(++i);
+                switch (first) {
+                    case '7':
+                        {
+                            // Less common unit beats (take a 2nd digit).
+                            char second = arr.at(++i);
+                            if (second >= '0' && second <= '9')
+                            {
+                                std::vector<uint8_t> lessCommon = {5, 7, 9, 10, 11, 12, 13, 14, 15, 16};
+                                result = lessCommon.at(second - '0');
+                                return true;
+                            }
+                            error = "Invalid 2nd character for unit beat: ";
+                            error += second;
+                            return false;
+                        }
+                    case '8':
+                    case '9':
+                        {
+                            // Arbitrary unit beat.
+                            uint8_t a1 = 0; uint8_t a2 = 0;
+                            if (!checkIsDigit(arr.at(++i), a1) || !checkIsDigit(arr.at(++i), a2)) {
+                                error = "Invalid digit(s) for arbitrary unit beat: ";
+                                error += a1;
+                                error += a2;
+                                return false;
+                            }
+                            result = (first == '9' ? 100 : 0) + 10 * a1 + a2;
+                            return true;
+                        }
+                    default:
+                        {
+                            if (first >= '0' && first <= '6')
+                            {
+                                // Common unit beats.
+                                std::vector<uint8_t> common = {0, 1, 2, 3, 4, 6, 8};
+                                result = common.at(first - '0');
+                                return true;
+                            }
+                            error += "Invalid 1st character for unit beat: ";
+                            error += first;
+                            return false;
+                        }
+                }
+            } catch (std::out_of_range& e) { throw e; };
+        }
 
-        std::string parseConsumeMany(size_t chars);
-        std::string parsePeekMany(size_t chars);
-
-        void parseNewMeasure();
-
-        // Parses a normal ball or mine.
-        void parseUnitBall(bool isMineLike);
-
-        // Parses a hold or pit.
-        void parseTailedBall(bool isMineLike);
-
-        // Parses a mini beat, x-pos and speed as one object.
-        Mxs parseUxs();
-
-        // Parses unitbeats which are then multiplied to give minibeats.
-        minibeat parseUbConvertToMb();
-
-        // Parses delta unitbeats which are then multiplied to give minibeats.
-        minibeat parseDeltaUbConvertToMb();
-
-        // Parses unitbeats.
-        unitbeat parseUb();
-
-        float parseX();
-
-        float parseSpeed();
-
-        std::vector<BallTypeTailPoint> parseNodes();
+        // Tries to parse an X-position from a character array. Stores the actual amount if successful.
+        // If not, stores the error in the `error` string.
+        static bool parsePosition(std::vector<char> &arr, size_t &i, float &result, std::string &error)
+        {
+            try {
+                std::string number = "";
+                for (size_t j = 0; j < 3; j++) number.push_back(arr.at(++i));
+                uint32_t pos = 0;
+                if (!checkIsUnsignedInt(number, pos)) {
+                    error = "Expected a number, found: " + number;
+                    return false;
+                }
+                float x = ((float) pos - 500) / 2;
+                if (x < 249.75 && x > -250.25) {
+                    result = x;
+                    return true;
+                }
+                error = "Invalid x position (x < 249.75 && x > -250.25): " + std::to_string(x);
+                return false;
+            } catch (const std::exception& e) { throw e; };
+        }
 
     public:
         std::vector<SerializerError> errors;
@@ -179,7 +237,7 @@ class Serializer
             try {
                 result = static_cast<minibeat>(std::stoul(inputString));
                 return true;
-            } catch (std::exception e) {
+            } catch (const std::exception& e) {
                 return false;
             }
         }
@@ -190,7 +248,7 @@ class Serializer
             try {
                 result = static_cast<uint32_t>(std::stoul(inputString));
                 return true;
-            } catch (std::exception e) {
+            } catch (const std::exception& e) {
                 return false;
             }
         }
@@ -209,96 +267,6 @@ class Serializer
                 return true;
             }
             return false;
-        }
-
-        // Tries to parse a Δb (change in beats) value for hold-like balls from a character array. Stores it in regular beats if successful.
-        // If not, stores the error in the `error` string.
-        static bool parseDeltaBeat(std::vector<char> &arr, size_t &i, minibeat &result, std::string &error)
-        {
-            try {
-                uint8_t len = 0;
-                if (!checkIsDigit(arr.at(++i), len)) return false;
-                len++; // to get the actual length.
-                std::string minibeats = "";
-                for (size_t j = 0; j < len; j++) minibeats.push_back(arr.at(++i));
-                uint32_t minibeatsInt = 0;
-                if (!checkIsUnsignedMinibeat(minibeats, minibeatsInt)) {
-                    error += "Invalid unsigned number for Δb: " + minibeats;
-                    return false;
-                }
-                result = minibeatsInt;
-                return true;
-            } catch (std::exception e) { throw e; };
-        }
-
-        // Tries to parse a unit beat from a character array. Stores it if successful.
-        // If not, stores the error in the `error` string.
-        static bool parseUnitBeat(std::vector<char> &arr, size_t &i, uint8_t &result, std::string &error)
-        {
-            try {
-                char first = arr.at(++i);
-                switch (first) {
-                    case '7':
-                        {
-                            // Less common unit beats (take a 2nd digit).
-                            char second = arr.at(++i);
-                            if (second >= '0' && second <= '9')
-                            {
-                                std::vector<uint8_t> lessCommon = {5, 7, 9, 10, 11, 12, 13, 14, 15, 16};
-                                result = lessCommon.at(second - '0');
-                                return true;
-                            }
-                            error = "Invalid 2nd character for unit beat: ";
-                            error += second;
-                            return false;
-                        }
-                    case '8':
-                    case '9':
-                        // Arbitrary unit beat.
-                        uint8_t a1; uint8_t a2;
-                        if (!checkIsDigit(arr.at(++i), a1) || !checkIsDigit(arr.at(++i), a2)) {
-                            error = "Invalid digit(s) for arbitrary unit beat: ";
-                            error += a1;
-                            error += a2;
-                            return false;
-                        }
-                        result = (first == '9' ? 100 : 0) + 10 * a1 + a2;
-                        return true;
-                    default:
-                        if (first >= '0' && first <= '6')
-                        {
-                            // Common unit beats.
-                            std::vector<uint8_t> common = {0, 1, 2, 3, 4, 6, 8};
-                            result = common.at(first - '0');
-                            return true;
-                        }
-                        error += "Invalid 1st character for unit beat: ";
-                        error += first;
-                        return false;
-                }
-            } catch (std::out_of_range& e) { throw e; };
-        }
-
-        // Tries to parse an X-position from a character array. Stores the actual amount if successful.
-        // If not, stores the error in the `error` string.
-        static bool parsePosition(std::vector<char> &arr, size_t &i, float &result, std::string &error)
-        {
-            try {
-                std::string number = "";
-                for (size_t j = 0; j < 3; j++) number.push_back(arr.at(++i));
-                uint32_t pos = 0;
-                if (!checkIsUnsignedInt(number, pos)) {
-                    error = "Expected a number, found: " + number;
-                    return false;
-                }
-                float x = ((float) pos - 500) / 2;
-                if (x < 249.75 && x > -250.25) {
-                    result = x;
-                    return true;
-                }
-                error = "Invalid x position (x < 249.75 && x > -250.25): " + std::to_string(x);
-                return false;
-            } catch (std::exception e) { throw e; };
         }
 
         // Gets all the tail points of a ball's type.
@@ -324,9 +292,9 @@ class Serializer
         // Saves a compressed ball file by returning string contents.
         std::string saveCompressedBallfile(size_t musicId, std::vector<Ball> &balls, std::vector<PaddleWidthChange> &paddleWidthChanges, std::vector<PaddleSpeedChange> &paddleSpeedChange, std::vector<PaddleDualChange>& paddleDualChanges);
 
-        // Reads `n` characters from a compressed (number-only) ball file, and sets the read combined string into `destStr`.
-        // Returns if this was successful.
-        bool readCompressedFileChars(std::vector<char>& vector, size_t n, size_t& i, std::string& destStr);
+        // Reads a compressed ball file from its contents and returns the result.
+        // Note: DO NOT PASS `NULL`/`nullptr` into the contents.
+        SerializerResult readCompressedBallfile(char* contents, size_t byteCount);
 };
 
 std::vector<std::string> splitStringStream(const std::string& str, char delimiter);

@@ -10,15 +10,17 @@ TextureLibrary::TextureLibrary(SDL_Renderer* renderer, std::filesystem::path bas
     this->basePath = basePath;
 }
 
-void TextureLibrary::loadTextures()
+bool TextureLibrary::loadTextures()
 {
-    this->loadTexture(&this->balls, "resources/balls.png");
-    this->loadTexture(&this->flash, "resources/flash.png");
-    this->loadTexture(&this->tail, "resources/tail.png");
-    this->loadTexture(&this->pitTail, "resources/pit_tail.png");
-    this->loadTexture(&this->mine, "resources/mine.png");
-    this->loadTexture(&this->mineFlash, "resources/mine_flash.png");
-    this->loadTexture(&this->squares, "resources/squares.png");
+    return (
+           this->loadTexture(&this->balls, "resources/balls.png")
+        && this->loadTexture(&this->flash, "resources/flash.png")
+        && this->loadTexture(&this->tail, "resources/tail.png")
+        && this->loadTexture(&this->pitTail, "resources/pit_tail.png")
+        && this->loadTexture(&this->mine, "resources/mine.png")
+        && this->loadTexture(&this->mineFlash, "resources/mine_flash.png")
+        && this->loadTexture(&this->squares, "resources/squares.png")
+    );
 }
 
 TextureLibrary::~TextureLibrary()
@@ -47,6 +49,7 @@ bool TextureLibrary::loadTexture(SDL_Texture** texture, const char* path)
         *texture = NULL;
         SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "Could not load texture from path: %s", path);
         SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "Texture Load Error: %s", SDL_GetError());
+        
         return false;
     }
 }

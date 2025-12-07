@@ -350,6 +350,11 @@ class Game
         // Currently applying music ID (only applicable in edit mode.)
         size_t appliedMusicId = 0;
 
+        // The minimum beat allowed for anything to be placed on.
+        float startBeat = -INFINITY;
+        // The maximum beat allowed for anything to be placed on.
+        float endBeat = INFINITY;
+
         // List of song names and their authors found when loading the game that can be used for edits.
         std::vector<EditSong> editSongs = {};
 
@@ -658,7 +663,7 @@ class Game
         // Gets judgment from position difference.
         Judgment getJudgmentFromDifference(float difference);
 
-        // Gets judgment from miliseconds. (Squares)
+        // Gets judgment from milliseconds. (Squares)
         Judgment getJudgmentFromMilliseconds(double milliseconds);
 
         // Checks if a ball can be hit by a paddle. Non-interactable balls' ball bodies are not rendered.
@@ -741,14 +746,24 @@ class Game
         }
 
         // Checks if a judgment's text should be considered for taking last judgment to be shown.
-        const bool isShownAsTextWhenLast(Judgment judgment)
+        bool isShownAsTextWhenLast(Judgment judgment)
         {
             return judgment <= Judgment::GOOD;
         }
 
     public:
+
+        // Whether to close the program in the next frame.
+        bool quit = false;
+
+        // Whether to make the program only use touch features (no keyboard ones).
+        bool touch = false;
+
         // Delta time passed since last frame.
         double deltaTimePassed;
+
+        // The current rendering scale. Cached for performance.
+        float renderedScale = 0;
 
         // Renderer for rendering the game.
         SDL_Renderer* renderer;

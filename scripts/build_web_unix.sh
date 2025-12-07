@@ -7,9 +7,5 @@ emcmake cmake -S .. -B ../build/web -DCMAKE_C_FLAGS="-sUSE_MPG123=1" -DCMAKE_CXX
 cd "../build/web" || return
 emmake make 
 
-# Move the resultant files into the Release folder.
-mkdir -p Release
-mv -f score-on-the-go.html Release/index.html
-mv -f score-on-the-go.js Release/score-on-the-go.js
-mv -f score-on-the-go.wasm Release/score-on-the-go.wasm
-mv -f score-on-the-go.data Release/score-on-the-go.data
+cd Release
+mv -f score-on-the-go.html index.html

@@ -52,7 +52,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     }
 
     SDL_Log("Attempting to use %d by %d as window resolution.", width, height);
-    if (!SDL_CreateWindowAndRenderer(NAME, width, height, SDL_WINDOW_MAXIMIZED | SDL_WINDOW_RESIZABLE, &window, &renderer))
+    if (!SDL_CreateWindowAndRenderer(NAME, width, height, SDL_WINDOW_MAXIMIZED | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY, &window, &renderer))
     {
         SDL_LogError(SDL_LOG_CATEGORY_CUSTOM, "SDL Window/Renderer Error: %s", SDL_GetError());
         return SDL_APP_FAILURE;
@@ -113,7 +113,9 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[]) {
     ac->app_quit = SDL_APP_CONTINUE;
     ac->game = std::unique_ptr<Game> (new Game(renderer, window, font, fontOutlined, ac->mixer, basePath));
     ac->game->textureLibrary = std::unique_ptr<TextureLibrary> (new TextureLibrary(renderer, basePath));
-    ac->game->textureLibrary->loadTextures();
+
+    // If a texture couldn't be loaded, stop the game.
+    if (!ac->game->textureLibrary->loadTextures()) return SDL_APP_FAILURE;
 
     if (!SDL_GetCurrentTime(&ac->time))
     {
@@ -145,6 +147,8 @@ SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event* event) {
 
 SDL_AppResult SDL_AppIterate(void *appstate) {
     auto* app = (AppContext*) appstate;
+
+    if (app->game->quit) return SDL_APP_FAILURE;
 
     // Update and get delta time.
     SDL_Time newTime = app->time;
