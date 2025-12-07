@@ -45,7 +45,7 @@ Game::Game(SDL_Renderer* renderer, SDL_Window* window, TTF_Font* font, TTF_Font*
         {
             // Successful!
             this->editSongs = std::get<SerializerSongListSuccess>(list).editSongs;
-            SDL_Log("%d", this->editSongs.size());
+            SDL_Log("Songs loaded: %zu", this->editSongs.size());
         }
         else
         {
@@ -234,7 +234,7 @@ void Game::renderPlaytest()
         LEAVE_LINE();
 
         DRAW_TEXT_W("Paddle Dual Mode: ");
-        DRAW_TEXT_W(getPaddleDualMode(this->beat) ? "Enabled" : "Disabled");
+        DRAW_TEXT_W(getPaddleDualMode(this->beat) ? "ON" : "OFF");
 
         LEAVE_LINE();
 
@@ -985,7 +985,7 @@ void Game::drawEditorBalls(float endY)
         {
             double fromSelectedBeat = bpmChange.beat - this->beat;
             float y = getEditorSelectedBeatY() + this->beatSpacing * fromSelectedBeat;
-            drawLineMarker(fromSelectedBeat, ChangeColors::BPM_LINE, formatFloat(bpmChange.bpm, 4),  ChangeColors::BPM_TEXT, 8, TextAlignment::RIGHT_ALIGNED, 1);
+            drawLineMarker(fromSelectedBeat, ChangeColors::BPM_LINE, std::string("BPM: ") + formatFloat(bpmChange.bpm, 4),  ChangeColors::BPM_TEXT, 8, TextAlignment::RIGHT_ALIGNED, 1);
         }
     }
 
@@ -995,7 +995,7 @@ void Game::drawEditorBalls(float endY)
         if (paddleWidthChange.beat >= min && paddleWidthChange.beat <= max)
         {
             double fromSelectedBeat = paddleWidthChange.beat - this->beat;
-            this->drawLineMarker(fromSelectedBeat, ChangeColors::PADDLE_WIDTH_LINE, formatFloat(paddleWidthChange.width, 0), ChangeColors::PADDLE_WIDTH_TEXT, -6, TextAlignment::CENTER_ALIGNED, 0.25);
+            this->drawLineMarker(fromSelectedBeat, ChangeColors::PADDLE_WIDTH_LINE, std::string("WIDTH: ") + formatFloat(paddleWidthChange.width, 0), ChangeColors::PADDLE_WIDTH_TEXT, -6, TextAlignment::CENTER_ALIGNED, 0.25);
         }
     }
 
@@ -1005,7 +1005,7 @@ void Game::drawEditorBalls(float endY)
         if (paddleSpeedChange.beat >= min && paddleSpeedChange.beat <= max)
         {
             double fromSelectedBeat = paddleSpeedChange.beat - this->beat;
-            this->drawLineMarker(fromSelectedBeat, ChangeColors::PADDLE_SPEED_LINE, formatFloat(paddleSpeedChange.speed, 0), ChangeColors::PADDLE_SPEED_TEXT, -6, TextAlignment::CENTER_ALIGNED, 0.75);
+            this->drawLineMarker(fromSelectedBeat, ChangeColors::PADDLE_SPEED_LINE, std::string("SPEED: ") + formatFloat(paddleSpeedChange.speed, 0), ChangeColors::PADDLE_SPEED_TEXT, -6, TextAlignment::CENTER_ALIGNED, 0.75);
         }
     }
 
@@ -1015,7 +1015,7 @@ void Game::drawEditorBalls(float endY)
         if (paddleDualChange.beat >= min && paddleDualChange.beat <= max)
         {
             double fromSelectedBeat = paddleDualChange.beat - this->beat;
-            this->drawLineMarker(fromSelectedBeat, ChangeColors::PADDLE_DUAL_LINE, paddleDualChange.enabled ? "enabled" : "disabled", ChangeColors::PADDLE_DUAL_TEXT, 8, TextAlignment::CENTER_ALIGNED, 0.5);
+            this->drawLineMarker(fromSelectedBeat, ChangeColors::PADDLE_DUAL_LINE, paddleDualChange.enabled ? "DUAL: ON" : "DUAL: OFF", ChangeColors::PADDLE_DUAL_TEXT, 8, TextAlignment::CENTER_ALIGNED, 0.5);
         }
     }
 
@@ -1571,6 +1571,7 @@ void Game::callbackLoadBallfilePicker(void* userdata, void* contents, int filter
             break;
         }
     }
+
     SerializerResult result = isProbablyUncompressed ?
         game->serializer->readBallfile(text, sizeInBytes, false) :
         game->serializer->readCompressedBallfile(text, sizeInBytes);
@@ -2765,22 +2766,25 @@ void Game::applyNewEditSong() {
     // TODO: apply new music and BPMs
     // Get the BPM first.
     std::string song = editSongs.at(musicId).song;
+    SDL_Log("Trying to load song %s from music ID %zu", song.c_str(), musicId);
     std::filesystem::path folder = basePath / "edit_resources" / song;
     std::ifstream in(folder / "song.txt", std::ios::binary);
-    ASSERT(in.is_open() && !in.badbit);
+    ASSERT(in.is_open());
+    ASSERT(!in.fail());
     std::stringstream buffer;
     buffer << in.rdbuf();
     std::string str = buffer.str();
     SerializerResult result = serializer->readBallfile(str.data(), str.length(), true);
-    if (std::holds_alternative<SerializerSuccess>(result)) {
-        SerializerSuccess success = std::get<SerializerSuccess>(result);
+    if (std::holds_alternative<SerializerSuccessFromBallFile>(result)) {
+        SerializerSuccessFromBallFile success = std::get<SerializerSuccessFromBallFile>(result);
         bpmChanges = success.bpmChanges;
         musicOffset = success.musicOffset;
     }
 
     // Load the music.
     std::ifstream inMusic(folder / "music.mp3", std::ios::binary);
-    ASSERT(inMusic.is_open() && !inMusic.badbit);
+    ASSERT(inMusic.is_open());
+    ASSERT(!inMusic.fail());
     std::stringstream bufferMusic;
     bufferMusic << inMusic.rdbuf();
     std::string strMusic = bufferMusic.str();
